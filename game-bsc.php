@@ -29,6 +29,8 @@ define('WG_GAME_ITEMS_PER_PAGE', 50); // Số item trên 1 trang
 define('WG_GAME_PLUGIN_DB_VERSION', '25.0');
 define('WG_GAME_DEFAULT_AVATAR_URL', site_url() . '/wp-content/plugins/game-bsc/assets/images/avatar.png');
 define('TIMEZONE', new DateTimeZone('Asia/Ho_Chi_Minh'));
+// Cookie name for plugin auth token (stored as opaque token in DB)
+define('GAME_AUTH_COOKIE', 'game_auth_token');
 /**
  *  Define mission codes
  */
@@ -70,19 +72,19 @@ define('BSC_WEB', 'bsc_web');
 // ==== Khởi tạo SESSION sớm ====
 add_action('init', function () {
     // Chỉ khởi tạo session cho front-end, không phải admin
-    if (session_status() === PHP_SESSION_NONE && !is_admin()) {
-        // Cookie session an toàn
-        $params = session_get_cookie_params();
-        session_set_cookie_params([
-            'lifetime' => 0,
-            'path'     => $params['path'] ?? '/',
-            'domain'   => $params['domain'] ?? '',
-            'secure'   => is_ssl(),
-            'httponly' => true,
-            'samesite' => 'Lax',
-        ]);
-        @session_start();
-    }
+    // if (session_status() === PHP_SESSION_NONE && !is_admin()) {
+    //     // Cookie session an toàn
+    //     $params = session_get_cookie_params();
+    //     session_set_cookie_params([
+    //         'lifetime' => 0,
+    //         'path'     => $params['path'] ?? '/',
+    //         'domain'   => $params['domain'] ?? '',
+    //         'secure'   => is_ssl(),
+    //         'httponly' => true,
+    //         'samesite' => 'Lax',
+    //     ]);
+    //     @session_start();
+    // }
 
     // Xử lý lưu utm_source từ query string vào cookie
     if ( empty( $_GET['utm_source'] ) ) {
@@ -173,6 +175,28 @@ function save_game_user_to_db($user_info) {
   ));
 
   if (!$existing_user) {
+     // Gọi api lấy thông tin user
+    $api_url = get_field('cdapi_ip_address_apiurl', 'option') . 'user/info';
+    $access_token = $_COOKIE['access_token'];
+    $response = wp_remote_get( $api_url, array(
+        'headers' => array(
+          'Authorization' => 'Bearer ' . $access_token,
+          'Content-Type' => 'application/x-www-form-urlencoded',
+        ),
+    ) );
+    if ( is_wp_error( $response ) ) {
+      $error_message = '[GAME] Lỗi khi kết nối đến API (user/info): ' . $response->get_error_message();
+        // Ghi vào debug.log
+      error_log($error_message);
+      return false;
+    }
+    $body = wp_remote_retrieve_body( $response );
+    $data = json_decode( $body, true );
+    if($data['s'] == 'ok' && isset($data['d']['userinfo']['fullname']) && !empty($data['d']['userinfo']['fullname'])) {
+      $name = $data['d']['userinfo']['fullname'];
+    } else {
+      $name = $user_info['external_user_id'];
+    }
     // Bắt đầu transaction cho user mới
     $wpdb->query('START TRANSACTION');
 
@@ -182,7 +206,7 @@ function save_game_user_to_db($user_info) {
         [
           'provider'         => $user_info['provider'],
           'external_user_id' => $user_info['external_user_id'],
-          'name'             => $user_info['external_user_id'],
+          'name'             => $name,
           'avatar_url'       => $user_info['avatar_url'],
           'status'           => 1, // active
           'created_at'       => game_now(),
@@ -220,10 +244,33 @@ function save_game_user_to_db($user_info) {
     return $user_id;
 
   } else {
+    $name = $existing_user->name;
+    // Nếu user['external_user_id'] == user['name'] thì gọi api lấy tên đầy đủ cập nhật lại(Với tài khoản tạo trước khi update code gọi api lấy thông tin)
+    if($existing_user->external_user_id == $existing_user->name) {
+      $api_url = get_field('cdapi_ip_address_apiurl', 'option') . 'user/info';
+      $access_token = $_COOKIE['access_token'];
+      $response = wp_remote_get( $api_url, array(
+          'headers' => array(
+            'Authorization' => 'Bearer ' . $access_token,
+            'Content-Type' => 'application/x-www-form-urlencoded',
+          ),
+      ) );
+      if ( is_wp_error( $response ) ) {
+        $error_message = '[GAME] Lỗi khi kết nối đến API (user/info): ' . $response->get_error_message();
+        // Ghi vào debug.log
+        error_log($error_message);
+      }
+      $body = wp_remote_retrieve_body( $response );
+      $data = json_decode( $body, true );
+      if($data['s'] == 'ok' && isset($data['d']['userinfo']['fullname']) && !empty($data['d']['userinfo']['fullname'])) {
+        $name = $data['d']['userinfo']['fullname'];
+      }
+    }
     // User đã tồn tại - cập nhật last_login_at
     $result_update = $wpdb->update(
         $table_name,
         [
+          'name' => $name,
           'last_login_at' => game_now(),
         ],
         [
@@ -267,6 +314,129 @@ function parse_token_parts($token) {
       'opaque'     => $parts[2] ?? null,
   ];
 }
+
+/**
+ * Generate and persist an opaque auth token for a user.
+ * Returns the plain token (to set in cookie) or false on failure.
+ */
+function game_generate_user_token($user_id, $ttl = 10800) {
+  global $wpdb;
+  $table = $wpdb->prefix . 'game_user_tokens';
+  try {
+    $token = bin2hex(random_bytes(32));
+  } catch (Throwable $e) {
+    return false;
+  }
+  $hash = hash('sha256', $token);
+  $expires = new DateTime('now', TIMEZONE);
+  $expires->modify('+' . $ttl . ' seconds');
+  $expires_at = $expires->format('Y-m-d H:i:s');
+  $inserted = $wpdb->insert($table, [
+    'user_id' => $user_id,
+    'token_hash' => $hash,
+    'created_at' => game_now(),
+    'expires_at' => $expires_at,
+    'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+    'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+  ]);
+  if ($inserted) return $token;
+  return false;
+}
+
+/**
+ * Set the auth cookie (httpOnly) for the generated token.
+ */
+function game_set_auth_cookie($token, $ttl = 10800) {
+  $expire = time() + $ttl;
+  if ( PHP_VERSION_ID >= 70300 ) {
+    setcookie( GAME_AUTH_COOKIE, $token, [
+      'expires'  => $expire,
+      'path'     => defined('COOKIEPATH') ? COOKIEPATH : '/',
+      'domain'   => defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '',
+      'secure'   => is_ssl(),
+      'httponly' => true,
+      'samesite' => 'Lax',
+    ] );
+  } else {
+    setcookie(
+      GAME_AUTH_COOKIE,
+      $token,
+      $expire,
+      ( defined('COOKIEPATH') ? COOKIEPATH : '/' ),
+      ( defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '' ),
+      is_ssl(),
+      true
+    );
+  }
+  // Make available in same request
+  $_COOKIE[GAME_AUTH_COOKIE] = $token;
+}
+
+/**
+ * Validate an auth token from cookie. Returns user array on success or WP_Error.
+ */
+function game_validate_user_token($token) {
+  if (empty($token)) return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
+  global $wpdb;
+  $table = $wpdb->prefix . 'game_user_tokens';
+  $user_table = $wpdb->prefix . 'game_users';
+  $hash = hash('sha256', $token);
+  $now = game_now();
+  $row = $wpdb->get_row($wpdb->prepare("SELECT t.user_id, u.provider, u.name, u.external_user_id, u.avatar_url FROM {$table} t JOIN {$user_table} u ON u.id = t.user_id WHERE t.token_hash = %s AND t.expires_at >= %s", $hash, $now));
+  if (!$row) return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
+  return [
+    'id' => (int)$row->user_id,
+    'provider' => $row->provider,
+    'external_user_id' => $row->external_user_id,
+    'name' => $row->name,
+    'avatar_url' => $row->avatar_url ?: WG_GAME_DEFAULT_AVATAR_URL,
+  ];
+}
+
+/**
+ * Revoke a token (useful for logout) and clear cookie.
+ */
+function game_revoke_user_token($token) {
+  if (empty($token)) return false;
+  global $wpdb;
+  $table = $wpdb->prefix . 'game_user_tokens';
+  $hash = hash('sha256', $token);
+  // Remove the token record entirely so validation only checks expiry
+  $deleted = $wpdb->delete($table, ['token_hash' => $hash]);
+  // Clear cookie
+  if ( PHP_VERSION_ID >= 70300 ) {
+    setcookie( GAME_AUTH_COOKIE, '', [
+      'expires'  => time() - 3600,
+      'path'     => defined('COOKIEPATH') ? COOKIEPATH : '/',
+      'domain'   => defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '',
+      'secure'   => is_ssl(),
+      'httponly' => true,
+      'samesite' => 'Lax',
+    ] );
+  } else {
+    setcookie( GAME_AUTH_COOKIE, '', time() - 3600, ( defined('COOKIEPATH') ? COOKIEPATH : '/' ), ( defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '' ), is_ssl(), true );
+  }
+  unset($_COOKIE[GAME_AUTH_COOKIE]);
+  return (bool)$deleted;
+}
+
+/**
+ * Clean up expired tokens for a user. If user_id is null, cleans all expired tokens.
+ */
+function game_cleanup_expired_tokens($user_id = null) {
+  global $wpdb;
+  $table = $wpdb->prefix . 'game_user_tokens';
+  $now = game_now();
+  
+  if ($user_id) {
+    // Delete expired tokens for specific user
+    $wpdb->query($wpdb->prepare("DELETE FROM {$table} WHERE user_id = %d AND expires_at < %s", $user_id, $now));
+  } else {
+    // Delete all expired tokens
+    $wpdb->query($wpdb->prepare("DELETE FROM {$table} WHERE expires_at < %s", $now));
+  }
+}
+
 /**
  *  Hàm trả về url sso
  */
@@ -297,7 +467,7 @@ function bsc_game_url_sso_logout()
  */
 function bsc_game_handle_sso_callback()
 {
-  if (isset($_COOKIE['access_token']) && !isset($_SESSION['game_user'])) {
+  if (isset($_COOKIE['access_token']) && !isset($_COOKIE[GAME_AUTH_COOKIE])) {
 			$access_token = $_COOKIE['access_token'];
       $token_parts = parse_token_parts($access_token);
       // Kiểm tra token có hợp lệ hay không, part1 có phải là số tài khoản chứng khoán không
@@ -333,57 +503,39 @@ function bsc_game_handle_sso_callback()
       if(!$user_id) {
         return;
       }
-      // Lưu vào session
-      $_SESSION['game_user'] = [
-        'id'               => $user_id,
-        'provider'         => $provider,
-        'external_user_id' => $token_parts['part1'],
-        'name'             => $token_parts['part1'],
-        'avatar_url'       => WG_GAME_DEFAULT_AVATAR_URL,
-      ];
-      $_SESSION['expired_at'] = time() + 10800; // 3 hours
-      if (session_status() === PHP_SESSION_ACTIVE) {
-          session_write_close(); // nhả khóa ngay
+      // Kiểm tra xem đã có token hợp lệ trong cookie chưa
+      if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
+        $existing_user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
+        if (!is_wp_error($existing_user)) {
+          // Token còn hạn, không cần tạo token mới
+          return;
+        }
+      }
+      // Tạo token của plugin (opaque) và lưu cookie (3h)
+      $token = game_generate_user_token($user_id, 10800);
+      if ($token) {
+        game_set_auth_cookie($token, 10800);
+        // Cleanup expired tokens for this user
+        game_cleanup_expired_tokens($user_id);
       }
 	}
 }
 /**
- * HÀM CHÍNH: yêu cầu có SESSION; nếu chưa có thì gọi API SSO để kiểm tra và lưu.
+ * HÀM CHÍNH: Kiểm tra token xác thực từ cookie
  *
  * @return array|WP_Error Thông tin user (array) nếu ok; WP_Error nếu chưa đăng nhập/không hợp lệ.
  */
 
 function game_sso_require_session() {
-  // Kiểm tra session đã start chưa
-    if (session_status() === PHP_SESSION_NONE) {
-        session_start();
+  // Kiểm tra token từ cookie
+  if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
+    $user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
+    if (!is_wp_error($user)) {
+      return $user;
     }
-    // Code production
-    // if (!empty($_SESSION['game_user']) && !empty($_SESSION['game_user']['id'])) {
-    //   $user = $_SESSION['game_user'];
-    //   if (session_status() === PHP_SESSION_ACTIVE) {
-    //       session_write_close(); // nhả khóa ngay
-    //   }
-    //   return $user;
-    // }
-    
-    // return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
-    
-    // Code dev
-    $user = [
-        'id'       => 1,
-        'provider'    => 'bsc',
-        'external_user_id'    => '123456',
-        'name'    => 'Triệu Ngọc Tài',
-        'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
-    ];
-    // 5) Lưu SESSION và trả về
-    $_SESSION['game_user']        = $user;
-    $_SESSION['game_logged_in_at'] = time();
-      if (session_status() === PHP_SESSION_ACTIVE) {
-          session_write_close(); // nhả khóa ngay
-      }
-    return $user;
+  }
+
+  return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
 }
 
 // Hàm tính thời gian diễn ra game

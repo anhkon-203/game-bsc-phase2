@@ -384,6 +384,46 @@ function game_bsc_get_gotit_vouchers_list(WP_REST_Request $request) {
  */
 function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 	try {
+		global $wpdb;
+		
+		// ===== 0. LẤY THÔNG TIN USER HIỆN TẠI (OPTIONAL) =====
+		$current_user = null;
+		$user_id = 0;
+		$user_voucher_redemptions = [];
+		
+		$current_user_session = game_sso_require_session();
+		if (!is_wp_error($current_user_session) && !empty($current_user_session['id'])) {
+			$user_id = absint($current_user_session['id']);
+			$prefix = $wpdb->prefix . 'game_';
+			
+			// Kiểm tra user tồn tại
+			$current_user = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT id, name, avatar_url, status FROM {$prefix}users WHERE id = %d",
+					$user_id
+				),
+				ARRAY_A
+			);
+			
+			// Nếu user tồn tại và active, lấy danh sách redemptions
+			if ($current_user && $current_user['status'] == 1) {
+				$redemptions = $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT voucher_post_id, COUNT(*) as count FROM {$prefix}user_voucher_redemptions
+						 WHERE user_id = %d
+						 GROUP BY voucher_post_id",
+						$user_id
+					),
+					ARRAY_A
+				);
+				
+				foreach ($redemptions as $redemption) {
+					$user_voucher_redemptions[(int)$redemption['voucher_post_id']] = (int)$redemption['count'];
+				}
+			} else {
+				$user_id = 0;
+			}
+		}
 		// ===== 1. QUERY VOUCHERS =====
 		$category_id = absint($request->get_param('category_id') ?? 0);
 		$only_gotit  = filter_var($request->get_param('only_gotit'), FILTER_VALIDATE_BOOLEAN);
@@ -652,7 +692,7 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 				],
 				'is_valid_time' => $is_valid_time,
 				'is_available' => $is_available,
-				'redemption_count' => (int)$redemption_count,
+				'redemption_count' => isset($user_voucher_redemptions[$post_id]) ? $user_voucher_redemptions[$post_id] : 0,
 				'thumbnail_url' => $thumbnail_url,
 				'is_bsc_fee_voucher' => (bool) get_field('is_bsc_fee_voucher', $post_id),
 				'fee_refund_rate'    => (float) (get_field('fee_refund_rate', $post_id) ?: 0),
@@ -1319,9 +1359,9 @@ function game_bsc_redeem_voucher_internal($user_id, $voucher_post_id) {
 		
 		if ($user_points < $points_cost) {
 			return wg_json_response(403, [], sprintf(
-				__('Bạn không đủ điểm. Cần %d điểm nhưng bạn chỉ có %d điểm.', WG_GAME_PLUGIN_TEXTDOMAIN),
-				$points_cost,
-				$user_points
+				__('Bạn không đủ điểm. Cần %s điểm nhưng bạn chỉ có %s điểm.', WG_GAME_PLUGIN_TEXTDOMAIN),
+				number_format($points_cost, 0, ',', '.'),
+				number_format($user_points, 0, ',', '.')
 			));
 		}
 		

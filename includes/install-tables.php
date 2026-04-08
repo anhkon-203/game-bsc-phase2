@@ -46,6 +46,19 @@ function game_bsc_install_tables() {
         KEY idx_user_checked (user_id, checked_at)
     ) ENGINE=InnoDB $charset_collate;";
 
+    // Bảng lưu tokens xác thực của plugin (opaque tokens, hashed)
+    $tables[$prefix . 'user_tokens'] = "CREATE TABLE {$prefix}user_tokens (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id INT UNSIGNED NOT NULL,
+        token_hash VARCHAR(64) NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NOT NULL,
+        ip VARCHAR(45) NULL,
+        user_agent TEXT NULL,
+        PRIMARY KEY (id),
+        KEY idx_user_id (user_id),
+        KEY idx_token_hash (token_hash)
+    ) ENGINE=InnoDB $charset_collate;";
     /* =========================
        QUESTION IMPORT
     ========================== */
