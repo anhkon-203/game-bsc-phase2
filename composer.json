@@ -1,0 +1,14 @@
+{
+    "name": "admin/game-bsc",
+    "authors": [
+        {
+            "name": "Trieu Ngoc Tai",
+            "email": "ngoctai28112k@gmail.com"
+        }
+    ],
+    "version": "1.0.0",
+    "type": "wordpress-plugin",
+    "require": {
+        "phpoffice/phpspreadsheet": "^5.1"
+    }
+}
