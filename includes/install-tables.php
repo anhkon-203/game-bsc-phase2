@@ -74,6 +74,25 @@ function game_bsc_install_tables() {
         PRIMARY KEY (id)
     ) ENGINE=InnoDB $charset_collate;";
 
+    // Bảng lưu lịch sử import points_cost voucher
+    $tables[$prefix . 'voucher_points_import_history'] = "CREATE TABLE {$prefix}voucher_points_import_history (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        file_name VARCHAR(255) NOT NULL,
+        file_url VARCHAR(255) NULL,
+        file_author INT UNSIGNED NOT NULL,
+        mode VARCHAR(20) NOT NULL DEFAULT 'dry-run',
+        total_rows INT UNSIGNED NOT NULL DEFAULT 0,
+        updated_rows INT UNSIGNED NOT NULL DEFAULT 0,
+        skipped_rows INT UNSIGNED NOT NULL DEFAULT 0,
+        conflict_rows INT UNSIGNED NOT NULL DEFAULT 0,
+        error_rows INT UNSIGNED NOT NULL DEFAULT 0,
+        summary_json LONGTEXT NULL,
+        uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_file_author (file_author),
+        KEY idx_uploaded_at (uploaded_at)
+    ) ENGINE=InnoDB $charset_collate;";
+
     /* =========================
        ARTIFACTS & PIECES & USER_PIECES
     ========================== */

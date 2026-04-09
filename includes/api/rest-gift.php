@@ -103,6 +103,44 @@ add_action('rest_api_init', function () {
 
 add_action('rest_api_init', function () {
 
+	// GET /wp-json/game-bsc/gotit-voucher-redemptions
+	register_rest_route(NS, '/gotit-voucher-redemptions', [
+		'methods'             => 'GET',
+		'callback'            => 'game_get_user_gotit_voucher_redemptions_history',
+		'permission_callback' => '__return_true',
+		'args' => [
+			'page' => [
+				'required'          => false,
+				'validate_callback' => function($param) {
+					return is_numeric($param) && (int)$param > 0;
+				},
+				'sanitize_callback' => 'absint',
+				'description'       => 'Trang hiện tại (mặc định 1).',
+			],
+			'per_page' => [
+				'required'          => false,
+				'validate_callback' => function($param) {
+					$per_page = (int)$param;
+					return $per_page > 0 && $per_page <= 100;
+				},
+				'sanitize_callback' => 'absint',
+				'description'       => 'Số lượng bản ghi trên mỗi trang (1-100, mặc định 20).',
+			],
+			'category_id' => [
+				'required'          => false,
+				'validate_callback' => function($param) {
+					if ($param === null || $param === '') return true;
+					return is_numeric($param) && (int)$param > 0;
+				},
+				'sanitize_callback' => 'absint',
+				'description'       => 'Lọc theo term_id của game_voucher_category.',
+			],
+		],
+	]);
+});
+
+add_action('rest_api_init', function () {
+
 	// GET /wp-json/game-bsc/voucher-detail?voucher_id={id}
 	register_rest_route(NS, '/voucher-detail', [
 		'methods'             => 'GET',
@@ -740,6 +778,198 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 		error_log('game_bsc_get_vouchers_list error: ' . $e->getMessage());
 		return wg_json_response(500, [], __('Lỗi hệ thống. Vui lòng thử lại sau.'), 500);
 	}
+}
+
+/**
+ * Callback: Lấy lịch sử voucher Got It mà user đã đổi.
+ *
+ * Response bao gồm:
+ * - vouchers: Danh sách voucher đã đổi
+ * - pagination: phân trang chuẩn API
+ *
+ * @param WP_REST_Request $request
+ * @return WP_REST_Response
+ */
+function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $request)
+{
+	global $wpdb;
+
+	$check_nonce = game_rest_perm_cb($request);
+	if (!$check_nonce) {
+		return wg_json_response(403, [], __('Yêu cầu không hợp lệ.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	$current_user = game_sso_require_session();
+	if (is_wp_error($current_user) || empty($current_user['id'])) {
+		return wg_json_response(
+			401,
+			['login_url' => bsc_game_url_sso()],
+			__('Bạn chưa đăng nhập. Vui lòng đăng nhập để tiếp tục.', WG_GAME_PLUGIN_TEXTDOMAIN)
+		);
+	}
+
+	$user_id = absint($current_user['id']);
+	$prefix = $wpdb->prefix . 'game_';
+
+	$user = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT id, status FROM {$prefix}users WHERE id = %d",
+			$user_id
+		),
+		ARRAY_A
+	);
+
+	if (!$user) {
+		return wg_json_response(404, [], __('Không tìm thấy người dùng.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	if ((int)$user['status'] === 0) {
+		return wg_json_response(403, [], __('Tài khoản của bạn đã bị khóa.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	$page = max(1, (int)($request->get_param('page') ?? 1));
+	$per_page = min(max((int)($request->get_param('per_page') ?? 20), 1), 100);
+	$offset = ($page - 1) * $per_page;
+
+	$category_id = absint($request->get_param('category_id') ?? 0);
+	if ($category_id > 0) {
+		$term = get_term($category_id, 'game_voucher_category');
+		if (!$term || is_wp_error($term)) {
+			return wg_json_response(404, [], __('Không tìm thấy danh mục voucher.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		}
+	}
+
+	$gotit_transaction_join_sql = "
+		LEFT JOIN (
+			SELECT g1.redemption_id, g1.transaction_ref_id
+			FROM {$prefix}gotit_transactions g1
+			INNER JOIN (
+				SELECT redemption_id, MAX(id) AS max_id
+				FROM {$prefix}gotit_transactions
+				GROUP BY redemption_id
+			) g2 ON g2.max_id = g1.id
+		) gtxn ON gtxn.redemption_id = uvr.id
+	";
+
+	$where_sql = "uvr.user_id = %d
+		AND EXISTS (
+			SELECT 1
+			FROM {$wpdb->postmeta} pm
+			WHERE pm.post_id = uvr.voucher_post_id
+			  AND pm.meta_key = 'voucher_type'
+			  AND UPPER(TRIM(pm.meta_value)) IN ('THIRD_PARTY', 'THIRD-PARTY')
+		)
+		AND COALESCE(NULLIF(uvr.transaction_ref_id, ''), NULLIF(gtxn.transaction_ref_id, ''), '') <> ''";
+	$where_args = [$user_id];
+
+	if ($category_id > 0) {
+		$where_sql .= "
+			AND EXISTS (
+				SELECT 1
+				FROM {$wpdb->term_relationships} tr
+				INNER JOIN {$wpdb->term_taxonomy} tt
+					ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				WHERE tr.object_id = uvr.voucher_post_id
+				  AND tt.taxonomy = 'game_voucher_category'
+				  AND tt.term_id = %d
+			)";
+		$where_args[] = $category_id;
+	}
+
+	$total_sql = "SELECT COUNT(*) FROM {$prefix}user_voucher_redemptions uvr {$gotit_transaction_join_sql} WHERE {$where_sql}";
+	$total_vouchers = (int) $wpdb->get_var($wpdb->prepare($total_sql, $where_args));
+	$total_pages = $total_vouchers > 0 ? (int)ceil($total_vouchers / $per_page) : 0;
+
+	if ($total_pages > 0 && $page > $total_pages) {
+		return wg_json_response(400, [], __('Số trang vượt quá tổng số trang.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	$rows_sql = "
+		SELECT
+			uvr.id AS redemption_id,
+			uvr.voucher_post_id,
+			uvr.redeemed_at,
+			COALESCE(NULLIF(uvr.transaction_ref_id, ''), gtxn.transaction_ref_id, '') AS transaction_ref_id
+		FROM {$prefix}user_voucher_redemptions uvr
+		{$gotit_transaction_join_sql}
+		WHERE {$where_sql}
+		ORDER BY uvr.redeemed_at DESC, uvr.id DESC
+		LIMIT %d OFFSET %d
+	";
+
+	$rows_args = array_merge($where_args, [$per_page, $offset]);
+	$rows = $wpdb->get_results($wpdb->prepare($rows_sql, $rows_args), ARRAY_A);
+
+	$vouchers = [];
+	foreach ((array) $rows as $row) {
+		$voucher_post_id = absint($row['voucher_post_id'] ?? 0);
+		$voucher_post = $voucher_post_id > 0 ? get_post($voucher_post_id) : null;
+
+		$voucher_title = $voucher_post instanceof WP_Post
+			? sanitize_text_field((string) $voucher_post->post_title)
+			: '';
+
+		$voucher_code = sanitize_text_field((string) (get_field('voucher_code', $voucher_post_id) ?? ''));
+		$voucher_type = sanitize_text_field((string) (get_field('voucher_type', $voucher_post_id) ?? 'THIRD_PARTY'));
+		$points_cost = (int) (get_field('points_cost', $voucher_post_id) ?: 0);
+
+		$partner = get_field('partner', $voucher_post_id);
+		if (!is_array($partner)) {
+			$partner = [];
+		}
+
+		$partner_logo_url = game_bsc_resolve_partner_logo_url($partner['logo'] ?? '');
+		if ($partner_logo_url === '') {
+			$partner_logo_url = esc_url_raw((string) (get_field('voucher_brand_logo_url', $voucher_post_id) ?? ''));
+		}
+
+		$thumbnail_url = esc_url_raw((string) (get_field('voucher_image_url', $voucher_post_id) ?? ''));
+		if ($thumbnail_url === '' && $voucher_post_id > 0) {
+			$thumbnail_id = get_post_thumbnail_id($voucher_post_id);
+			if ($thumbnail_id) {
+				$thumbnail_url = (string) (wp_get_attachment_image_url($thumbnail_id, 'full') ?: '');
+			}
+		}
+
+		$transaction_ref_id = sanitize_text_field((string) ($row['transaction_ref_id'] ?? ''));
+
+		$vouchers[] = [
+			'voucher_redemption_id' => (int) ($row['redemption_id'] ?? 0),
+			'transaction_ref_id' => $transaction_ref_id,
+			'redeemed_at' => sanitize_text_field((string) ($row['redeemed_at'] ?? '')),
+			'voucher' => [
+				'id' => $voucher_post_id,
+				'title' => $voucher_title,
+				'code' => $voucher_code,
+				'type' => $voucher_type,
+				'points_cost' => $points_cost,
+				'thumbnail_url' => esc_url($thumbnail_url),
+				'partner' => [
+					'name' => sanitize_text_field((string) ($partner['name'] ?? '')),
+					'url' => esc_url((string) ($partner['url'] ?? '')),
+					'logo_url' => esc_url($partner_logo_url),
+				],
+			],
+		];
+	}
+
+	$response_data = [
+		'vouchers' => $vouchers,
+		'pagination' => [
+			'current_page' => $page,
+			'per_page' => $per_page,
+			'total_items' => $total_vouchers,
+			'total_pages' => $total_pages,
+			'has_next' => $total_pages > 0 && $page < $total_pages,
+			'has_prev' => $page > 1,
+		],
+	];
+
+	return wg_json_response(
+		200,
+		$response_data,
+		__('Lấy lịch sử voucher Got It đã đổi thành công.', WG_GAME_PLUGIN_TEXTDOMAIN)
+	);
 }
 
 /**

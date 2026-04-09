@@ -190,6 +190,8 @@ function game_bsc_redirect_error($msg, $admin_url) {
 
 // Hàm xử lý import câu hỏi từ file Excel
 require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/manage-question-excel.php';
+// Hàm xử lý export/import points_cost voucher từ file Excel
+require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/manage-voucher-excel.php';
 // Cài đặt chung
 require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/settings.php';
 // Quản lý hiện vật

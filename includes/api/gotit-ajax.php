@@ -1657,6 +1657,7 @@ function game_bsc_sync_gotit_products_to_vouchers($args = []) {
                         $updated++;
                     }
 
+                    $points_locked = (int) get_post_meta($post_id, '_game_bsc_points_cost_locked', true) === 1;
                     $current_points = (int) (get_field('points_cost', $post_id) ?? 0);
                     $selected_value = $price_value > 0 ? (string) $price_value : $price_label;
                     $points_cost    = $current_points > 0 ? $current_points
@@ -1721,7 +1722,9 @@ function game_bsc_sync_gotit_products_to_vouchers($args = []) {
                         'logo' => $brand_logo_url,
                     ]);
                     game_bsc_gotit_set_voucher_field($post_id, 'is_active',   1);
-                    game_bsc_gotit_set_voucher_field($post_id, 'points_cost', max(0, (int) $points_cost));
+                    if (!$points_locked) {
+                        game_bsc_gotit_set_voucher_field($post_id, 'points_cost', max(0, (int) $points_cost));
+                    }
 
                     if ((int) (get_field('quantity', $post_id) ?? 0) < 1) {
                         game_bsc_gotit_set_voucher_field($post_id, 'quantity', 999999);

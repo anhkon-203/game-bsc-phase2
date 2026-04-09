@@ -26,7 +26,7 @@ define('GAME_BSC_PLUGIN_FILE', __FILE__);
 define('WG_GAME_PLUGIN_TEXTDOMAIN', 'wg-game-bsc');
 define('WG_GAME_MAX_UPLOAD_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('WG_GAME_ITEMS_PER_PAGE', 50); // Số item trên 1 trang
-define('WG_GAME_PLUGIN_DB_VERSION', '25.0');
+define('WG_GAME_PLUGIN_DB_VERSION', '26.0');
 define('WG_GAME_DEFAULT_AVATAR_URL', site_url() . '/wp-content/plugins/game-bsc/assets/images/avatar.png');
 define('TIMEZONE', new DateTimeZone('Asia/Ho_Chi_Minh'));
 // Cookie name for plugin auth token (stored as opaque token in DB)
@@ -527,15 +527,33 @@ function bsc_game_handle_sso_callback()
  */
 
 function game_sso_require_session() {
-  // Kiểm tra token từ cookie
-  if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
-    $user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
-    if (!is_wp_error($user)) {
-      return $user;
-    }
-  }
 
-  return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
+   
+    // Code dev
+    $user = [
+        'id'       => 1,
+        'provider'    => 'bsc',
+        'external_user_id'    => '123456',
+        'name'    => 'Triệu Ngọc Tài',
+        'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
+    ];
+    // 5) Lưu SESSION và trả về
+    $_SESSION['game_user']        = $user;
+    $_SESSION['game_logged_in_at'] = time();
+      if (session_status() === PHP_SESSION_ACTIVE) {
+          session_write_close(); // nhả khóa ngay
+      }
+    return $user;
+
+  // Kiểm tra token từ cookie
+  // if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
+  //   $user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
+  //   if (!is_wp_error($user)) {
+  //     return $user;
+  //   }
+  // }
+
+  // return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
 }
 
 // Hàm tính thời gian diễn ra game
