@@ -489,6 +489,13 @@ function game_bsc_settings_page() {
                             <p class="description">Header sử dụng: X-GI-Authorization</p>
                         </td>
                     </tr>
+                    <tr>
+                        <th><label for="trading_server"><?php _e('BSC Trading Server URL', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
+                        <td>
+                            <input type="text" name="trading_server" id="trading_server" value="<?php echo esc_attr(get_option('game_bsc_trading_server', '')); ?>" style="width: 60%;">
+                            <p class="description">URL của BSC Trading API server (VD: https://tradeapi-krxtduat.bsc.com.vn). Dùng để lấy tiểu khoản của user.</p>
+                        </td>
+                    </tr>
                 </table>
             </div>
             <!-- SUBMIT BUTTON -->
@@ -1187,6 +1194,21 @@ function game_bsc_handle_save_settings() {
     }
     if ($old_gotit_api_key !== $gotit_api_key) {
         game_bsc_log_settings_change('game_bsc_gotit_api_key', !empty($old_gotit_api_key) ? '[SET]' : '[EMPTY]', !empty($gotit_api_key) ? '[SET]' : '[EMPTY]', 'update');
+    }
+
+    // Trading Server URL
+    $old_trading_server = get_option('game_bsc_trading_server', '');
+    $trading_server = esc_url_raw($_POST['trading_server'] ?? '');
+    $trading_server = rtrim($trading_server, '/'); // Remove trailing slash
+    update_option('game_bsc_trading_server', $trading_server);
+
+    if ($old_trading_server !== $trading_server) {
+        game_bsc_log_settings_change(
+            'game_bsc_trading_server',
+            $old_trading_server,
+            $trading_server,
+            'update'
+        );
     }
 
     // ✅ LOG THAY ĐỔI SETTINGS

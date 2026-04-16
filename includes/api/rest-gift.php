@@ -423,52 +423,12 @@ function game_bsc_get_gotit_vouchers_list(WP_REST_Request $request) {
 function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 	try {
 		global $wpdb;
-		
-		// ===== 0. LẤY THÔNG TIN USER HIỆN TẠI (OPTIONAL) =====
-		$current_user = null;
-		$user_id = 0;
-		$user_voucher_redemptions = [];
-		
-		$current_user_session = game_sso_require_session();
-		if (!is_wp_error($current_user_session) && !empty($current_user_session['id'])) {
-			$user_id = absint($current_user_session['id']);
-			$prefix = $wpdb->prefix . 'game_';
-			
-			// Kiểm tra user tồn tại
-			$current_user = $wpdb->get_row(
-				$wpdb->prepare(
-					"SELECT id, name, avatar_url, status FROM {$prefix}users WHERE id = %d",
-					$user_id
-				),
-				ARRAY_A
-			);
-			
-			// Nếu user tồn tại và active, lấy danh sách redemptions
-			if ($current_user && $current_user['status'] == 1) {
-				$redemptions = $wpdb->get_results(
-					$wpdb->prepare(
-						"SELECT voucher_post_id, COUNT(*) as count FROM {$prefix}user_voucher_redemptions
-						 WHERE user_id = %d
-						 GROUP BY voucher_post_id",
-						$user_id
-					),
-					ARRAY_A
-				);
-				
-				foreach ($redemptions as $redemption) {
-					$user_voucher_redemptions[(int)$redemption['voucher_post_id']] = (int)$redemption['count'];
-				}
-			} else {
-				$user_id = 0;
-			}
-		}
+
 		// ===== 1. QUERY VOUCHERS =====
 		$category_id = absint($request->get_param('category_id') ?? 0);
 		$only_gotit  = filter_var($request->get_param('only_gotit'), FILTER_VALIDATE_BOOLEAN);
 		$page        = max(1, absint($request->get_param('page') ?? 1));
 		$per_page    = min(100, max(1, absint($request->get_param('per_page') ?? 20)));
-		// Luôn phân trang ở tầng query để tránh OOM khi số lượng voucher lớn.
-		$should_paginate = true;
 		$selected_term = null;
 		$selected_gotit_category_id = 0;
 		$query_total_items = 0;
@@ -531,19 +491,14 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 			];
 		}
 
-		if ($should_paginate) {
-			$args['posts_per_page'] = $per_page;
-			$args['paged'] = $page;
-			$args['no_found_rows'] = false;
+		$args['posts_per_page'] = $per_page;
+		$args['paged'] = $page;
+		$args['no_found_rows'] = false;
 
-			$query_result = new WP_Query($args);
-			$all_vouchers = $query_result->posts;
-			$query_total_items = (int) $query_result->found_posts;
-			$query_total_pages = (int) $query_result->max_num_pages;
-		} else {
-			$args['posts_per_page'] = -1;
-			$all_vouchers = get_posts($args);
-		}
+		$query_result = new WP_Query($args);
+		$all_vouchers = $query_result->posts;
+		$query_total_items = (int) $query_result->found_posts;
+		$query_total_pages = (int) $query_result->max_num_pages;
 
 		// Fallback: nếu taxonomy relation bị thiếu nhưng voucher vẫn có meta Got It category id,
 		// lọc theo `_game_bsc_gotit_category_id` để tránh mất dữ liệu khi truy vấn theo danh mục.
@@ -561,30 +516,24 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 				'compare' => '=',
 			];
 
-			if ($should_paginate) {
-				$fallback_query = new WP_Query($fallback_args);
-				$all_vouchers = $fallback_query->posts;
-				$query_total_items = (int) $fallback_query->found_posts;
-				$query_total_pages = (int) $fallback_query->max_num_pages;
-			} else {
-				$all_vouchers = get_posts($fallback_args);
-			}
+			$fallback_query = new WP_Query($fallback_args);
+			$all_vouchers = $fallback_query->posts;
+			$query_total_items = (int) $fallback_query->found_posts;
+			$query_total_pages = (int) $fallback_query->max_num_pages;
 		}
 
 		if (empty($all_vouchers)) {
-			$empty_data = $should_paginate
-				? [
-					'vouchers' => [],
-					'pagination' => [
-						'current_page' => $page,
-						'per_page' => $per_page,
-						'total_items' => 0,
-						'total_pages' => 0,
-						'has_next' => false,
-						'has_prev' => false,
-					],
-				]
-				: [];
+			$empty_data = [
+				'vouchers' => [],
+				'pagination' => [
+					'current_page' => $page,
+					'per_page' => $per_page,
+					'total_items' => 0,
+					'total_pages' => 0,
+					'has_next' => false,
+					'has_prev' => false,
+				],
+			];
 
 			if ($only_gotit && $category_id > 0) {
 				$category_name = $selected_term instanceof WP_Term
@@ -730,7 +679,7 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 				],
 				'is_valid_time' => $is_valid_time,
 				'is_available' => $is_available,
-				'redemption_count' => isset($user_voucher_redemptions[$post_id]) ? $user_voucher_redemptions[$post_id] : 0,
+				'redemption_count' => 0,
 				'thumbnail_url' => $thumbnail_url,
 				'is_bsc_fee_voucher' => (bool) get_field('is_bsc_fee_voucher', $post_id),
 				'fee_refund_rate'    => (float) (get_field('fee_refund_rate', $post_id) ?: 0),
@@ -743,34 +692,26 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 			? __('Lấy danh sách voucher Got It thành công.', WG_GAME_PLUGIN_TEXTDOMAIN)
 			: __('Lấy danh sách voucher thành công.', WG_GAME_PLUGIN_TEXTDOMAIN);
 
-		if ($should_paginate) {
-			$total_items = max(0, (int) $query_total_items);
-			$total_pages = max(0, (int) $query_total_pages);
+		$total_items = max(0, (int) $query_total_items);
+		$total_pages = max(0, (int) $query_total_pages);
 
-			if ($total_pages > 0 && $page > $total_pages) {
-				return wg_json_response(400, [], __('Số trang vượt quá tổng số trang.', WG_GAME_PLUGIN_TEXTDOMAIN));
-			}
-
-			return wg_json_response(
-				200,
-				[
-					'vouchers' => array_values($formatted_vouchers),
-					'pagination' => [
-						'current_page' => $page,
-						'per_page' => $per_page,
-						'total_items' => $total_items,
-						'total_pages' => $total_pages,
-						'has_next' => $page < $total_pages,
-						'has_prev' => $page > 1,
-					],
-				],
-				$success_message
-			);
+		if ($total_pages > 0 && $page > $total_pages) {
+			return wg_json_response(400, [], __('Số trang vượt quá tổng số trang.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
 
 		return wg_json_response(
 			200,
-			$formatted_vouchers,
+			[
+				'vouchers' => array_values($formatted_vouchers),
+				'pagination' => [
+					'current_page' => $page,
+					'per_page' => $per_page,
+					'total_items' => $total_items,
+					'total_pages' => $total_pages,
+					'has_next' => $page < $total_pages,
+					'has_prev' => $page > 1,
+				],
+			],
 			$success_message
 		);
 

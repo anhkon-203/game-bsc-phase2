@@ -54,6 +54,15 @@ function game_bsc_admin_menu() {
 		'dashboard_config'
 	);
 	
+	add_submenu_page(
+		'game-bsc-main',
+		__('Test API v2', WG_GAME_PLUGIN_TEXTDOMAIN),
+		__('Test API v2', WG_GAME_PLUGIN_TEXTDOMAIN),
+		'admin_game',
+		'game-bsc-test-api',
+		'game_bsc_test_api_page'
+	);
+	
 }
 
 
@@ -172,3 +181,6 @@ require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/settings.php';
 // Quản lý hiện vật
 require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/manage-artifacts.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/helpers/artifact-detail.php';
+
+// Test API Page
+require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/test-api.php';

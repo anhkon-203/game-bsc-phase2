@@ -25,6 +25,7 @@ function game_bsc_install_tables() {
         external_user_id VARCHAR(128) NOT NULL,         -- id user bên SSO
         name VARCHAR(255) NOT NULL,
         avatar_url VARCHAR(255) DEFAULT NULL,
+        afacctno VARCHAR(32) DEFAULT NULL,              -- số tiểu khoản thường cơ sở (BSC /trade/accounts)
         status TINYINT(1) NOT NULL DEFAULT 1,           -- 1: active, 0: blocked
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_login_at DATETIME NULL,
@@ -441,11 +442,35 @@ function game_bsc_install_tables() {
 }
 register_activation_hook(GAME_BSC_PLUGIN_FILE, 'game_bsc_install_tables');
 // game_bsc_install_tables();
+
+/**
+ * Ensure legacy installs have afacctno column in game_users.
+ */
+function game_bsc_ensure_users_afacctno_column() {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'game_users';
+
+    // If users table does not exist yet, let install routine handle it.
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) !== $table_name) {
+        return;
+    }
+
+    $column_exists = $wpdb->get_var("SHOW COLUMNS FROM `{$table_name}` LIKE 'afacctno'");
+    if ($column_exists) {
+        return;
+    }
+
+    $wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `afacctno` VARCHAR(32) DEFAULT NULL AFTER `avatar_url`");
+}
+
 // Phát hành bản mới
 function game_bsc_update_db_check() {
     if (get_option('wg_game_db_version') != WG_GAME_PLUGIN_DB_VERSION) {
         game_bsc_install_tables();
     }
+
+    game_bsc_ensure_users_afacctno_column();
 }
 add_action('admin_init', 'game_bsc_update_db_check');
 // Uninstall hook

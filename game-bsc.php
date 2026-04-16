@@ -26,7 +26,7 @@ define('GAME_BSC_PLUGIN_FILE', __FILE__);
 define('WG_GAME_PLUGIN_TEXTDOMAIN', 'wg-game-bsc');
 define('WG_GAME_MAX_UPLOAD_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('WG_GAME_ITEMS_PER_PAGE', 50); // Số item trên 1 trang
-define('WG_GAME_PLUGIN_DB_VERSION', '26.0');
+define('WG_GAME_PLUGIN_DB_VERSION', '27.0');
 define('WG_GAME_DEFAULT_AVATAR_URL', site_url() . '/wp-content/plugins/game-bsc/assets/images/avatar.png');
 define('TIMEZONE', new DateTimeZone('Asia/Ho_Chi_Minh'));
 // Cookie name for plugin auth token (stored as opaque token in DB)
@@ -162,8 +162,10 @@ function game_now($type = null)
 // 
 /*
 * Hàm lưu thông tin user vào database
+* @param array $user_info User information (provider, external_user_id, avatar_url)
+* @param string|null $access_token BSC access token để lấy tiểu khoản (optional)
 */
-function save_game_user_to_db($user_info) {
+function save_game_user_to_db($user_info, $access_token = null) {
   global $wpdb;
   $table_name = $wpdb->prefix . 'game_users';
   $prefix = $wpdb->prefix . 'game_';
@@ -241,6 +243,12 @@ function save_game_user_to_db($user_info) {
     }
 
     $wpdb->query('COMMIT');
+
+    // Lấy tiểu khoản thường cơ sở từ BSC Trading API nếu có access_token
+    if ($access_token) {
+      bsc_game_sync_afacctno($user_id, $access_token);
+    }
+
     return $user_id;
 
   } else {
@@ -298,6 +306,11 @@ function save_game_user_to_db($user_info) {
 
     if (!$login_log) {
       return false;
+    }
+
+    // Lấy tiểu khoản thường cơ sở từ BSC Trading API nếu có access_token
+    if ($access_token) {
+      bsc_game_sync_afacctno($existing_user->id, $access_token);
     }
 
     return $existing_user->id;
@@ -467,58 +480,158 @@ function bsc_game_url_sso_logout()
  */
 function bsc_game_handle_sso_callback()
 {
-  if (isset($_COOKIE['access_token']) && !isset($_COOKIE[GAME_AUTH_COOKIE])) {
-			$access_token = $_COOKIE['access_token'];
-      $token_parts = parse_token_parts($access_token);
-      // Kiểm tra token có hợp lệ hay không, part1 có phải là số tài khoản chứng khoán không
-      if (empty($token_parts['part1']) || substr($token_parts['part1'], 0, 4) !== '002C') {
-        return;
-      }
-	  // add code
-	  $utm_soruce_cookie = $_COOKIE['utm_source'] ?? '';
-	  if(!empty($utm_soruce_cookie)) {
-		  switch($utm_soruce_cookie) {
-			  case MTRADER_APP:
-				  $provider = MTRADER_APP;
-				  break;
-			  case BSC_SMART_INVEST:
-				  $provider = BSC_SMART_INVEST;
-				  break;
-			  case WEBTRADING:
-				  $provider = WEBTRADING;
-				  break;
-			  default:
-				  $provider = BSC_WEB;
-				  break;
-		  }
-	  }else{
-		  $provider = BSC_WEB;
-	  }
-      // Lưu thông tin user vào DB nếu chưa có
-      $user_id = save_game_user_to_db([
-          'provider'         => $provider,
-          'external_user_id' => $token_parts['part1'],
-          'avatar_url'       => WG_GAME_DEFAULT_AVATAR_URL,
-      ]);
-      if(!$user_id) {
-        return;
-      }
-      // Kiểm tra xem đã có token hợp lệ trong cookie chưa
-      if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
-        $existing_user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
-        if (!is_wp_error($existing_user)) {
-          // Token còn hạn, không cần tạo token mới
-          return;
-        }
-      }
-      // Tạo token của plugin (opaque) và lưu cookie (3h)
-      $token = game_generate_user_token($user_id, 10800);
-      if ($token) {
-        game_set_auth_cookie($token, 10800);
-        // Cleanup expired tokens for this user
-        game_cleanup_expired_tokens($user_id);
-      }
-	}
+  if (!isset($_COOKIE['access_token']) || isset($_COOKIE[GAME_AUTH_COOKIE])) {
+    return;
+  }
+
+  $access_token = $_COOKIE['access_token'];
+  $token_parts  = parse_token_parts($access_token);
+  $custodycd    = $token_parts['part1'] ?? '';
+
+  // ===== RULE: Chỉ cho phép tài khoản nội địa (prefix 002C) =====
+  // 002F = tài khoản nước ngoài → chặn truy cập Gamification
+  if (empty($custodycd) || substr($custodycd, 0, 4) !== '002C') {
+    return;
+  }
+
+  // ===== Xác định provider từ utm_source cookie =====
+  $utm_source_cookie = $_COOKIE['utm_source'] ?? '';
+  if (!empty($utm_source_cookie)) {
+    switch ($utm_source_cookie) {
+      case MTRADER_APP:     $provider = MTRADER_APP;     break;
+      case BSC_SMART_INVEST: $provider = BSC_SMART_INVEST; break;
+      case WEBTRADING:      $provider = WEBTRADING;      break;
+      default:              $provider = BSC_WEB;         break;
+    }
+  } else {
+    $provider = BSC_WEB;
+  }
+
+  // ===== Lưu user vào DB (insert hoặc update last_login) =====
+  $user_id = save_game_user_to_db([
+    'provider'         => $provider,
+    'external_user_id' => $custodycd,
+    'avatar_url'       => WG_GAME_DEFAULT_AVATAR_URL,
+  ], $access_token);
+
+  if (!$user_id) {
+    return;
+  }
+
+
+  // ===== Kiểm tra token plugin còn hạn không =====
+  if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
+    $existing = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
+    if (!is_wp_error($existing)) {
+      return; // Token còn hợp lệ, không cần tạo mới
+    }
+  }
+
+  // ===== Tạo plugin auth token (opaque, 3h) =====
+  $token = game_generate_user_token($user_id, 10800);
+  if ($token) {
+    game_set_auth_cookie($token, 10800);
+    game_cleanup_expired_tokens($user_id);
+  }
+}
+
+/**
+ * Gọi BSC Trading API /trade/accounts và lưu AFACCTNO vào cột afacctno của game_users.
+ *
+ * Điều kiện tìm tiểu khoản thường cơ sở Active:
+ *   - accounttype   = 'SEC'  (chứng khoán)
+ *   - mrtype        = 'N'    (thường – không ký quỹ)
+ *   - alternateacct = 'Y'    (tiểu khoản cơ sở)
+ *
+ * Hàm được gọi bất đồng bộ trong callback SSO nên KHÔNG block request;
+ * lỗi chỉ ghi vào error_log, không ném exception.
+ *
+ * @param int    $user_id      ID trong bảng game_users
+ * @param string $access_token BSC access_token nguyên bản (từ cookie)
+ * @return void
+ */
+function bsc_game_sync_afacctno(int $user_id, string $access_token): void
+{
+  global $wpdb;
+
+  // ----- Xác định Trading Server URL -----
+  $trading_server = '';
+  // Ưu tiên: lấy từ option settings
+  $trading_server = (string)(get_option('game_bsc_trading_server') ?? '');
+  // Fallback: lấy từ ACF field (cũ)
+  if (empty($trading_server) && function_exists('get_field')) {
+    $trading_server = (string)(get_field('cdapi_ip_address_tradingserver', 'option') ?? '');
+  }
+  // Fallback cuối: dùng URL mặc định
+  if (empty($trading_server)) {
+    $trading_server = 'https://tradeapi-krxtduat.bsc.com.vn';
+  }
+  $trading_server = rtrim($trading_server, '/');
+
+  // ----- Gọi GET /trade/accounts -----
+  $response = wp_remote_get($trading_server . '/trade/accounts', [
+    'headers' => [
+      'Authorization' => 'Bearer ' . $access_token,
+      'Content-Type'  => 'application/json',
+      'Accept'        => 'application/json',
+    ],
+    'timeout' => 10,
+  ]);
+
+  if (is_wp_error($response)) {
+    error_log('[BSC SSO] bsc_game_sync_afacctno wp_error: ' . $response->get_error_message());
+    return;
+  }
+
+  $http_code = (int) wp_remote_retrieve_response_code($response);
+  if ($http_code < 200 || $http_code >= 300) {
+    error_log('[BSC SSO] bsc_game_sync_afacctno HTTP ' . $http_code);
+    return;
+  }
+
+  $body = json_decode(wp_remote_retrieve_body($response), true);
+
+  if (
+    !is_array($body) ||
+    ($body['s'] ?? '') !== 'ok' ||
+    !isset($body['d']) ||
+    !is_array($body['d'])
+  ) {
+    error_log('[BSC SSO] bsc_game_sync_afacctno invalid body: ' . wp_json_encode($body));
+    return;
+  }
+
+  // ----- Tìm tiểu khoản thường cơ sở -----
+  $afacctno = null;
+  foreach ($body['d'] as $account) {
+    if (
+      strtoupper($account['accounttype']   ?? '') === 'SEC' &&
+      strtoupper($account['mrtype']        ?? '') === 'N'   &&
+      strtoupper($account['alternateacct'] ?? '') === 'Y'
+    ) {
+      $afacctno = (string)($account['acctno'] ?? '');
+      break;
+    }
+  }
+
+  if (empty($afacctno)) {
+    error_log('[BSC SSO] bsc_game_sync_afacctno: không tìm thấy tiểu khoản thường cơ sở cho user_id=' . $user_id);
+    return;
+  }
+
+  // ----- Lưu vào cột afacctno trong game_users -----
+  $table  = $wpdb->prefix . 'game_users';
+  $result = $wpdb->update(
+    $table,
+    ['afacctno' => sanitize_text_field($afacctno)],
+    ['id'       => $user_id],
+    ['%s'],
+    ['%d']
+  );
+
+  if ($result === false) {
+    error_log('[BSC SSO] bsc_game_sync_afacctno DB update error: ' . $wpdb->last_error);
+  }
 }
 /**
  * HÀM CHÍNH: Kiểm tra token xác thực từ cookie
@@ -834,6 +947,13 @@ function save_user_daily_login_mission() {
   $table_missions = $wpdb->prefix . 'game_user_mission_logs';
   $tz = TIMEZONE;
   $today = (new DateTimeImmutable('now', $tz))->format('Y-m-d');
+
+  // Check nếu đã hết thời gian diễn ra game thì return false
+  $game_period = game_bsc_compute_day_index();
+  if (($game_period['status'] ?? '') === 'ended') {
+    return false;
+  }
+
   
   // Kiểm tra user đã hoàn thành nhiệm vụ daily_login hôm nay chưa
   $existing = $wpdb->get_row($wpdb->prepare(

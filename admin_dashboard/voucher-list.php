@@ -173,6 +173,7 @@ $current_time = $now->format('H:i:s');
 							<tr>
 								<th class="px-6 py-3 text-left">STT</th>
 								<th class="px-6 py-3 text-left">CUSTODYCD</th>
+								<th class="px-6 py-3 text-left">AFACCTNO</th>
 								<th class="px-6 py-3 text-left">Mã voucher / Tên hiện vật</th>
 								<th class="px-6 py-3 text-left">Thời gian đổi</th>
 								<th class="px-6 py-3 text-left">VOUCHERAMT</th>
@@ -192,6 +193,9 @@ $current_time = $now->format('H:i:s');
 										<td class="px-6 py-3">
                                             <div class="text-sm text-gray-500"> <?php echo esc_html($redemption['external_user_id']); ?></div>
                                         </td>
+										<td class="px-6 py-3">
+											<div class="text-sm text-gray-500"><?php echo !empty($redemption['afacctno']) ? esc_html($redemption['afacctno']) : 'N/A'; ?></div>
+										</td>
 										<!-- Mã voucher / Tên hiện vật -->
 										<td class="px-6 py-3">
 											<?php if ($redemption['gift_type'] === 'voucher'): ?>
@@ -276,7 +280,7 @@ $current_time = $now->format('H:i:s');
 								<?php endforeach; ?>
 							<?php else: ?>
 								<tr>
-									<td colspan="8" class="px-6 py-8 text-center text-gray-500">
+									<td colspan="10" class="px-6 py-8 text-center text-gray-500">
 										Không có dữ liệu để hiển thị
 									</td>
 								</tr>

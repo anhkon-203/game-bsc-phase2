@@ -469,8 +469,24 @@ function executeMissionApi($missionCode, $params = [])
 	
 	return $response;
 }
-function callApiGame($url, $data = false, $method = "GET")
+function callApiGame($url, $data = false, $method = "GET", $headers = array())
 {
+	if (!is_array($headers)) {
+		$headers = array();
+	}
+
+	$has_content_type_header = false;
+	foreach ($headers as $header) {
+		if (stripos((string) $header, 'Content-Type:') === 0) {
+			$has_content_type_header = true;
+			break;
+		}
+	}
+
+	if (!$has_content_type_header) {
+		$headers[] = 'Content-Type: application/x-www-form-urlencoded';
+	}
+
 	$curl = curl_init();
 	curl_setopt_array($curl, array(
 		CURLOPT_URL => $url,
@@ -483,14 +499,12 @@ function callApiGame($url, $data = false, $method = "GET")
 		CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
 		CURLOPT_CUSTOMREQUEST => $method,
 		CURLOPT_POSTFIELDS => $data,
-		CURLOPT_HTTPHEADER => array(
-			'Content-Type: application/x-www-form-urlencoded'
-		),
+		CURLOPT_HTTPHEADER => $headers,
 	));
 
 	$response = curl_exec($curl);
 	$error = curl_error($curl); // Lấy lỗi nếu có
-	$http_code = curl_getinfo($curl, CURLINFO_HEADER_SIZE); // Mã HTTP trả về
+	$http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE); // Mã HTTP trả về
 	curl_close($curl);
 
 	if ($error) {
@@ -502,7 +516,7 @@ function callApiGame($url, $data = false, $method = "GET")
 		return null;
 	}
 
-	return json_decode($http_code);
+	return json_decode($response);
 }
 // test
 // Hàm kiểm tra user đã thực hiện nhiệm vụ hiện tại chưa
