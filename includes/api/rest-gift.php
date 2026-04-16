@@ -841,7 +841,7 @@ function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $reques
 
 	$gotit_transaction_join_sql = "
 		LEFT JOIN (
-			SELECT g1.redemption_id, g1.transaction_ref_id
+			SELECT g1.redemption_id, g1.transaction_ref_id, g1.gotit_expiry_date
 			FROM {$prefix}gotit_transactions g1
 			INNER JOIN (
 				SELECT redemption_id, MAX(id) AS max_id
@@ -889,7 +889,8 @@ function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $reques
 			uvr.id AS redemption_id,
 			uvr.voucher_post_id,
 			uvr.redeemed_at,
-			COALESCE(NULLIF(uvr.transaction_ref_id, ''), gtxn.transaction_ref_id, '') AS transaction_ref_id
+			COALESCE(NULLIF(uvr.transaction_ref_id, ''), gtxn.transaction_ref_id, '') AS transaction_ref_id,
+			COALESCE(uvr.gotit_expiry_date, gtxn.gotit_expiry_date) AS expiry_date
 		FROM {$prefix}user_voucher_redemptions uvr
 		{$gotit_transaction_join_sql}
 		WHERE {$where_sql}
@@ -912,16 +913,10 @@ function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $reques
 		$voucher_code = sanitize_text_field((string) (get_field('voucher_code', $voucher_post_id) ?? ''));
 		$voucher_type = sanitize_text_field((string) (get_field('voucher_type', $voucher_post_id) ?? 'THIRD_PARTY'));
 		$points_cost = (int) (get_field('points_cost', $voucher_post_id) ?: 0);
-
-		$partner = get_field('partner', $voucher_post_id);
-		if (!is_array($partner)) {
-			$partner = [];
-		}
-
-		$partner_logo_url = game_bsc_resolve_partner_logo_url($partner['logo'] ?? '');
-		if ($partner_logo_url === '') {
-			$partner_logo_url = esc_url_raw((string) (get_field('voucher_brand_logo_url', $voucher_post_id) ?? ''));
-		}
+		$voucher_selected_value_raw = get_field('voucher_selected_value', $voucher_post_id);
+		$voucher_selected_value = is_scalar($voucher_selected_value_raw)
+			? sanitize_text_field((string) $voucher_selected_value_raw)
+			: '';
 
 		$thumbnail_url = esc_url_raw((string) (get_field('voucher_image_url', $voucher_post_id) ?? ''));
 		if ($thumbnail_url === '' && $voucher_post_id > 0) {
@@ -932,6 +927,7 @@ function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $reques
 		}
 
 		$transaction_ref_id = sanitize_text_field((string) ($row['transaction_ref_id'] ?? ''));
+		$expiry_date = sanitize_text_field((string) ($row['expiry_date'] ?? ''));
 
 		$vouchers[] = [
 			'voucher_redemption_id' => (int) ($row['redemption_id'] ?? 0),
@@ -942,13 +938,10 @@ function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $reques
 				'title' => $voucher_title,
 				'code' => $voucher_code,
 				'type' => $voucher_type,
+				'voucher_value' => $voucher_selected_value,
 				'points_cost' => $points_cost,
+				'expiry_date' => $expiry_date,
 				'thumbnail_url' => esc_url($thumbnail_url),
-				'partner' => [
-					'name' => sanitize_text_field((string) ($partner['name'] ?? '')),
-					'url' => esc_url((string) ($partner['url'] ?? '')),
-					'logo_url' => esc_url($partner_logo_url),
-				],
 			],
 		];
 	}

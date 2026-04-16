@@ -42,11 +42,6 @@ else if($sub=='voucher-list'){
 else if($sub=='gift-detail'){
 	include_once __DIR__ .'/gift-detail.php';
 }
-else if($sub=='gotit-test'){
-	include_once __DIR__ .'/gotit-test.php';
-}
-
-
 ?>
 
 

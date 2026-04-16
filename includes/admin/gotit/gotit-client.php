@@ -3,6 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!function_exists('game_bsc_gotit_source_config')) {
     function game_bsc_gotit_source_config() {
+        // Cấu hình nguồn dữ liệu Got It dùng xuyên suốt plugin.
         $config = [
             'prefix' => '000578',
             'authentication_method' => '',
@@ -21,6 +22,7 @@ if (!function_exists('game_bsc_gotit_source_config')) {
 
 if (!function_exists('game_bsc_gotit_source_value')) {
     function game_bsc_gotit_source_value($key, $default = null) {
+        // Lấy giá trị config theo key, có fallback mặc định.
         $config = game_bsc_gotit_source_config();
         return array_key_exists($key, $config) ? $config[$key] : $default;
     }
@@ -38,11 +40,12 @@ class Game_BSC_GotIt_Client {
 
     private function normalize_api_key($value) {
         $raw = is_string($value) ? $value : '';
-        // Remove invisible/spacing chars that often appear when copy/paste from docs.
+        // Chuẩn hóa API key để tránh lỗi do ký tự ẩn khi copy từ tài liệu.
         return preg_replace('/\s+/u', '', trim($raw));
     }
 
     public function __construct() {
+        // Khởi tạo client theo môi trường (staging/production) và prefix của đối tác.
         $this->api_key = $this->normalize_api_key(get_option('game_bsc_gotit_api_key', ''));
         $environment = get_option('game_bsc_gotit_environment', 'staging');
         $this->base_url = ($environment === 'production')
@@ -64,7 +67,7 @@ class Game_BSC_GotIt_Client {
 
         $normalized = strtolower((string) preg_replace('/[\s_\-]+/', '', $raw));
 
-        // Canonical values from Got It docs: none, otpsms, otpemail, coverlink, password.
+        // Map nhiều alias về nhóm giá trị chuẩn theo tài liệu Got It.
         switch ($normalized) {
             case 'none':
             case 'noauth':
@@ -97,11 +100,12 @@ class Game_BSC_GotIt_Client {
             return '';
         }
 
-        // Preserve Got It camelCase params (e.g. categoryId, pageSize).
+        // Giữ camelCase của tham số query để tương thích endpoint Got It.
         return (string) preg_replace('/[^A-Za-z0-9_]/', '', $raw_key);
     }
 
     private function normalize_fields_query_value($fields) {
+        // Chuẩn hóa danh sách fields để tránh truyền param sai định dạng.
         if (is_array($fields)) {
             $normalized_fields = [];
             foreach ($fields as $field) {
@@ -122,7 +126,57 @@ class Game_BSC_GotIt_Client {
         return '';
     }
 
+    private function is_retryable_request_error($result) {
+        // Chỉ retry với lỗi mạng/timeout/5xx hoặc rate-limit.
+        $http_code = (int) ($result['http_code'] ?? 0);
+        if ($http_code === 0) {
+            return true;
+        }
+
+        if (in_array($http_code, [408, 429, 500, 502, 503, 504], true)) {
+            return true;
+        }
+
+        $error_text = strtolower((string) ($result['error'] ?? ''));
+        if ($error_text !== '' && (strpos($error_text, 'timeout') !== false || strpos($error_text, 'timed out') !== false || strpos($error_text, 'connection') !== false)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function request_with_retry($method, $endpoint, $body = null, $query_params = [], $max_attempts = 3) {
+        // Retry backoff nhẹ để giảm lỗi ngắt quãng từ API upstream.
+        $max_attempts = max(1, (int) $max_attempts);
+        $result = null;
+        $delay_ms = 120;
+
+        for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+            $result = $this->request($method, $endpoint, $body, $query_params);
+            if (!is_array($result)) {
+                $result = [
+                    'success' => false,
+                    'data' => null,
+                    'status_code' => 0,
+                    'error' => 'Unexpected Got It client response.',
+                    'raw' => '',
+                    'http_code' => 0,
+                ];
+            }
+
+            if (!empty($result['success']) || $attempt >= $max_attempts || !$this->is_retryable_request_error($result)) {
+                return $result;
+            }
+
+            usleep($delay_ms * 1000);
+            $delay_ms = min($delay_ms * 2, 1200);
+        }
+
+        return $result;
+    }
+
     private function build_master_data_query($page = 1, $page_size = 100, $fields = []) {
+        // Query chuẩn cho các API master data có phân trang.
         $query = [
             'page' => max(1, (int) $page),
             'pageSize' => min(100, max(1, (int) $page_size)),
@@ -137,6 +191,7 @@ class Game_BSC_GotIt_Client {
     }
 
     private function request_client_group_endpoint($resource, $query_params = []) {
+        // Ưu tiên endpoint theo nhóm client, fallback sang endpoint tổng quát nếu cần.
         $resource = trim((string) $resource, '/');
         if ($resource === '') {
             return ['success' => false, 'error' => 'Invalid client resource.', 'http_code' => 0];
@@ -163,6 +218,7 @@ class Game_BSC_GotIt_Client {
     }
 
     public function get_auth_diagnostics() {
+        // Thông tin chẩn đoán an toàn (không lộ toàn bộ API key).
         $len = strlen((string) $this->api_key);
         return [
             'base_url' => $this->base_url,
@@ -174,6 +230,7 @@ class Game_BSC_GotIt_Client {
     }
 
     public function generate_transaction_ref_id($user_id = 0, $voucher_post_id = 0) {
+        // Ref ID duy nhất để đối soát giao dịch issue/check status.
         $timestamp = gmdate('YmdHis');
         $random = wp_rand(1000, 9999);
         return sprintf('%s_%s_%d_%d_%d', $this->prefix, $timestamp, (int) $user_id, (int) $voucher_post_id, $random);
@@ -203,6 +260,7 @@ class Game_BSC_GotIt_Client {
     }
 
     public function get_products($page = 1, $page_size = 100, $extra_filters = []) {
+        // Lấy danh sách sản phẩm, hỗ trợ filter linh hoạt từ caller.
         $query = [];
 
         if (is_array($extra_filters)) {
@@ -558,7 +616,7 @@ class Game_BSC_GotIt_Client {
 
         foreach ($prefixes as $prefix) {
             $endpoint = trim($prefix, '/') . '/' . ltrim((string) $endpoint_without_prefix, '/');
-            $result = $this->request($method, $endpoint, $body, $query_params);
+            $result = $this->request_with_retry($method, $endpoint, $body, $query_params);
             $tried[] = $result['url'] ?? '';
 
             if (!empty($result['success'])) {
@@ -684,7 +742,7 @@ class Game_BSC_GotIt_Client {
         $args = [
             'method' => $normalized_method,
             'headers' => $headers,
-            'timeout' => 30,
+            'timeout' => 20,
             'sslverify' => true,
             'user-agent' => 'BSC-Game-GotIt/1.0',
         ];

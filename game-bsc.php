@@ -773,8 +773,7 @@ require_once(GAME_BSC_PLUGIN_DIR . 'includes/api/rest-rules.php');
 require_once(GAME_BSC_PLUGIN_DIR . 'includes/api/rest-gift.php');
 // require_once(GAME_BSC_PLUGIN_DIR . 'includes/api/rest-bsc-external.php');
 require_once(GAME_BSC_PLUGIN_DIR . 'includes/api/rest-bsc-fee-vouchers.php');
-require_once GAME_BSC_PLUGIN_DIR . 'includes/api/gotit-client.php';
-require_once GAME_BSC_PLUGIN_DIR . 'includes/api/gotit-ajax.php';
+require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/gotit/gotit-init.php';
 
 // Cho phép (bỏ qua auth) riêng các route /wp-json/game-bsc/*
 add_filter('rest_authentication_errors', function ($result) {

@@ -139,1049 +139,103 @@ function game_bsc_insert_gotit_test_transaction($args) {
 }
 
 function game_bsc_gotit_is_list_array($value) {
-    return is_array($value) && array_values($value) === $value;
+    return game_bsc_gotit_product_normalizer_is_list_array($value);
 }
 
 function game_bsc_gotit_extract_products_list($value) {
-    if (!is_array($value)) {
-        return [];
-    }
-
-    if (game_bsc_gotit_is_list_array($value)) {
-        return $value;
-    }
-
-    $candidate_keys = ['products', 'items', 'list', 'rows', 'result', 'data'];
-    foreach ($candidate_keys as $key) {
-        if (isset($value[$key]) && is_array($value[$key])) {
-            $list = game_bsc_gotit_extract_products_list($value[$key]);
-            if (!empty($list)) {
-                return $list;
-            }
-        }
-    }
-
-    return [];
+    return game_bsc_gotit_product_normalizer_extract_products_list($value);
 }
 
 function game_bsc_gotit_normalize_price_label($price_item) {
-    if (!is_array($price_item)) {
-        return '';
-    }
-
-    // ===== XỬ LÝ AMOUNT (value) TRƯỚC =====
-    // Got It trả về priceInfo[].value = 50000 (số thực tế)
-    // Ưu tiên: format thành "50.000đ" nếu là số hợp lệ
-    $amount = 0;
-    foreach (['price', 'value', 'amount', 'denomination'] as $money_key) {
-        if (isset($price_item[$money_key]) && is_numeric($price_item[$money_key])) {
-            $amount = (int) $price_item[$money_key];
-            break;
-        }
-    }
-
-    // ===== XỬ LÝ NAME =====
-    // Bỏ qua name nếu là số đơn thuần ("1", "2", "50000") — không có nghĩa với người dùng
-    $raw_name = trim((string) ($price_item['name'] ?? $price_item['productPriceName'] ?? ''));
-    $is_meaningful_name = $raw_name !== ''
-        && !ctype_digit($raw_name)                      // không phải số nguyên thuần
-        && !preg_match('/^\d+$/', $raw_name);           // không phải chuỗi chỉ có chữ số
-
-    if ($is_meaningful_name) {
-        // Name đã có nghĩa (vd: "50,000đ", "100k", "Thẻ điện thoại 100.000đ") → dùng thẳng
-        return $raw_name;
-    }
-
-    // Name không có nghĩa → format từ amount
-    if ($amount > 0) {
-        return number_format($amount, 0, ',', '.') . 'đ';
-    }
-
-    // amount = 0 nhưng có name hợp lệ → vẫn dùng name
-    if ($raw_name !== '') {
-        return $raw_name;
-    }
-
-    return '';
+    return game_bsc_gotit_product_normalizer_normalize_price_label($price_item);
 }
 
 function game_bsc_gotit_normalize_product_prices($value) {
-    $normalized = [];
-
-    if (!is_array($value)) {
-        return $normalized;
-    }
-
-    if (!game_bsc_gotit_is_list_array($value)) {
-        foreach (['productPrices', 'prices', 'items', 'list', 'data'] as $nested_key) {
-            if (isset($value[$nested_key]) && is_array($value[$nested_key])) {
-                return game_bsc_gotit_normalize_product_prices($value[$nested_key]);
-            }
-        }
-
-        if (!empty($value['productPriceId']) || !empty($value['id']) || !empty($value['priceId'])) {
-            $value = [$value];
-        }
-    }
-
-    foreach ($value as $price_item) {
-        if (is_scalar($price_item)) {
-            $price_id = (int) $price_item;
-            if ($price_id > 0) {
-                $normalized[] = [
-                    'productPriceId' => $price_id,
-                    'name' => (string) $price_id,
-                    'value' => 0,
-                    'label' => (string) $price_id,
-                ];
-            }
-            continue;
-        }
-
-        if (!is_array($price_item)) {
-            continue;
-        }
-
-        $price_id = 0;
-        foreach (['productPriceId', 'id', 'priceId'] as $key) {
-            if (!empty($price_item[$key])) {
-                $price_id = (int) $price_item[$key];
-                break;
-            }
-        }
-
-        if ($price_id < 1) {
-            continue;
-        }
-
-        $label = game_bsc_gotit_normalize_price_label($price_item);
-        if ($label === '') {
-            $label = (string) $price_id;
-        }
-
-        $price_name = sanitize_text_field((string) ($price_item['name'] ?? $price_item['productPriceName'] ?? ''));
-
-        $price_value = 0;
-        foreach (['value', 'price', 'amount', 'denomination'] as $value_key) {
-            if (isset($price_item[$value_key]) && is_numeric($price_item[$value_key])) {
-                $price_value = (int) $price_item[$value_key];
-                break;
-            }
-        }
-
-        $normalized[] = [
-            'productPriceId' => $price_id,
-            'name' => $price_name,
-            'value' => $price_value,
-            'label' => $label,
-        ];
-    }
-
-    return $normalized;
+    return game_bsc_gotit_product_normalizer_normalize_product_prices($value);
 }
 
 function game_bsc_gotit_normalize_products($value) {
-    $normalized = [];
-    $products = game_bsc_gotit_extract_products_list($value);
-
-    foreach ($products as $product) {
-        if (!is_array($product)) {
-            continue;
-        }
-
-        $product_id = 0;
-        foreach (['productId', 'id'] as $key) {
-            if (!empty($product[$key])) {
-                $product_id = (int) $product[$key];
-                break;
-            }
-        }
-
-        if ($product_id < 1) {
-            continue;
-        }
-
-        $product_name = '';
-        foreach (['productName', 'name', 'productTitle', 'title'] as $key) {
-            if (!empty($product[$key])) {
-                $product_name = sanitize_text_field((string) $product[$key]);
-                break;
-            }
-        }
-
-        if ($product_name === '') {
-            $product_name = 'Product ' . $product_id;
-        }
-
-        $prices = [];
-        foreach (['productPriceId', 'productPrices', 'prices', 'priceList', 'productPriceIds', 'priceInfo'] as $key) {
-            if (!empty($product[$key]) && is_array($product[$key])) {
-                $prices = game_bsc_gotit_normalize_product_prices($product[$key]);
-                if (!empty($prices)) {
-                    break;
-                }
-            }
-        }
-
-        $brand_info = [];
-        if (!empty($product['brandInfo']) && is_array($product['brandInfo'])) {
-            $brand_info = [
-                'id' => (int) ($product['brandInfo']['id'] ?? 0),
-                'name' => sanitize_text_field((string) ($product['brandInfo']['name'] ?? '')),
-                'logo' => esc_url_raw((string) ($product['brandInfo']['logo'] ?? '')),
-            ];
-        }
-
-        $additional_images = [];
-        if (!empty($product['additionalImages']) && is_array($product['additionalImages'])) {
-            foreach ($product['additionalImages'] as $img) {
-                if (is_string($img) && $img !== '') {
-                    $additional_images[] = esc_url_raw($img);
-                }
-            }
-        }
-
-        $extra_fields = [];
-        if (isset($product['extraFields'])) {
-            $extra_fields = is_array($product['extraFields']) ? $product['extraFields'] : [];
-        }
-
-        $normalized[] = [
-            'productId'        => $product_id,
-            'productName'      => $product_name,
-            'prices'           => $prices,
-            'image'            => esc_url_raw((string) ($product['image'] ?? '')),
-            'additionalImages' => $additional_images,
-            'type'             => sanitize_text_field((string) ($product['type'] ?? '')),
-            'description'      => (string) ($product['description'] ?? ''),
-            'shortDescription' => (string) ($product['shortDescription'] ?? ''),
-            'slug'             => sanitize_text_field((string) ($product['slug'] ?? '')),
-            'link'             => esc_url_raw((string) ($product['link'] ?? '')),
-            'voucherType'      => sanitize_text_field((string) ($product['voucherType'] ?? '')),
-            'terms'            => (string) ($product['terms'] ?? ''),
-            'serviceGuide'     => (string) ($product['serviceGuide'] ?? ''),
-            'brandInfo'        => $brand_info,
-            'extraFields'      => $extra_fields,
-            'categoryId'       => (int) ($product['categoryId'] ?? $product['category_id'] ?? 0),
-            'categoryName'     => sanitize_text_field((string) ($product['categoryName'] ?? $product['category_name'] ?? '')),
-            'raw'              => $product,
-        ];
-    }
-
-    return $normalized;
+    return game_bsc_gotit_product_normalizer_normalize_products($value);
 }
 
 function game_bsc_gotit_clean_store_text($value) {
-    if (!is_scalar($value)) {
-        return '';
-    }
-
-    return trim((string) preg_replace('/\s+/u', ' ', wp_strip_all_tags((string) $value)));
+    return game_bsc_gotit_content_helper_clean_store_text($value);
 }
 
 function game_bsc_gotit_prepare_html_content($value) {
-    if (!is_scalar($value)) {
-        return '';
-    }
-
-    $raw = (string) $value;
-    if ($raw === '') {
-        return '';
-    }
-
-    // Got It payload can contain HTML entities (&lt;p&gt;, &agrave;, ...) that should be decoded first.
-    $decoded = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    return wp_kses_post($decoded);
+    return game_bsc_gotit_content_helper_prepare_html_content($value);
 }
 
 function game_bsc_gotit_set_voucher_html_field($post_id, $field_name, $field_key, $value) {
-    $safe_value = game_bsc_gotit_prepare_html_content($value);
-
-    // Save raw sanitized HTML directly to postmeta to preserve markup structure.
-    update_post_meta($post_id, $field_name, wp_slash($safe_value));
-    if ($field_key !== '') {
-        update_post_meta($post_id, '_' . $field_name, $field_key);
-    }
-
-    return $safe_value;
+    return game_bsc_gotit_content_helper_set_voucher_html_field($post_id, $field_name, $field_key, $value);
 }
 
 function game_bsc_gotit_collect_store_names_from_node($node, &$names, $depth = 0) {
-    if ($depth > 5 || !is_array($node)) {
-        return;
-    }
-
-    $name_keys = ['storeName', 'storeNm', 'store_name', 'branchName', 'branchNm', 'shopName', 'outletName', 'displayName', 'name'];
-
-    if (game_bsc_gotit_is_list_array($node)) {
-        foreach ($node as $child) {
-            if (is_array($child)) {
-                game_bsc_gotit_collect_store_names_from_node($child, $names, $depth + 1);
-            }
-        }
-        return;
-    }
-
-    foreach ($name_keys as $name_key) {
-        if (!array_key_exists($name_key, $node) || !is_scalar($node[$name_key])) {
-            continue;
-        }
-
-        $name = game_bsc_gotit_clean_store_text($node[$name_key]);
-        if ($name !== '') {
-            $names[$name] = true;
-        }
-    }
-
-    foreach ($node as $key => $value) {
-        if (!is_array($value)) {
-            continue;
-        }
-
-        $lower_key = strtolower((string) $key);
-        $is_store_key = strpos($lower_key, 'store') !== false
-            || strpos($lower_key, 'branch') !== false
-            || strpos($lower_key, 'shop') !== false
-            || strpos($lower_key, 'outlet') !== false
-            || in_array($lower_key, ['items', 'list', 'data'], true);
-
-        if ($is_store_key) {
-            game_bsc_gotit_collect_store_names_from_node($value, $names, $depth + 1);
-        }
-    }
+    game_bsc_gotit_store_normalizer_collect_store_names_from_node($node, $names, $depth);
 }
 
 function game_bsc_gotit_collect_store_names_from_text($text, &$names) {
-    if (!is_scalar($text)) {
-        return;
-    }
-
-    $parts = preg_split('/[\r\n,;|]+/', (string) $text);
-    if (empty($parts) || !is_array($parts)) {
-        return;
-    }
-
-    foreach ($parts as $part) {
-        $name = game_bsc_gotit_clean_store_text($part);
-        if ($name !== '') {
-            $names[$name] = true;
-        }
-    }
+    game_bsc_gotit_store_normalizer_collect_store_names_from_text($text, $names);
 }
 
 function game_bsc_gotit_normalize_store_row($store) {
-    if (!is_array($store)) {
-        return [];
-    }
-
-    $has_store_signal = false;
-    foreach (['id', 'storeId', 'name', 'storeName', 'storeNm', 'store_name', 'branchName', 'branchNm', 'shopName', 'outletName', 'address', 'cityName', 'districtName', 'lat', 'long', 'phone'] as $signal_key) {
-        if (array_key_exists($signal_key, $store)) {
-            $has_store_signal = true;
-            break;
-        }
-    }
-
-    if (!$has_store_signal) {
-        return [];
-    }
-
-    $name = '';
-    foreach (['name', 'storeName', 'storeNm', 'store_name', 'branchName', 'branchNm', 'shopName', 'outletName', 'displayName'] as $name_key) {
-        if (array_key_exists($name_key, $store)) {
-            $name = game_bsc_gotit_clean_store_text($store[$name_key]);
-            if ($name !== '') {
-                break;
-            }
-        }
-    }
-
-    $address = '';
-    foreach (['address', 'storeAddress', 'storeAddr', 'branchAddress', 'fullAddress'] as $address_key) {
-        if (array_key_exists($address_key, $store)) {
-            $address = game_bsc_gotit_clean_store_text($store[$address_key]);
-            if ($address !== '') {
-                break;
-            }
-        }
-    }
-
-    $email = '';
-    foreach (['email', 'storeEmail', 'contactEmail'] as $email_key) {
-        if (array_key_exists($email_key, $store)) {
-            $email = game_bsc_gotit_clean_store_text($store[$email_key]);
-            if ($email !== '') {
-                break;
-            }
-        }
-    }
-
-    $phone = '';
-    foreach (['phone', 'phoneNo', 'phoneNumber', 'tel', 'hotline', 'contactPhone'] as $phone_key) {
-        if (array_key_exists($phone_key, $store)) {
-            $phone = game_bsc_gotit_clean_store_text($store[$phone_key]);
-            if ($phone !== '') {
-                break;
-            }
-        }
-    }
-
-    $lat = '';
-    foreach (['lat', 'latitude'] as $lat_key) {
-        if (array_key_exists($lat_key, $store)) {
-            $lat = game_bsc_gotit_clean_store_text($store[$lat_key]);
-            if ($lat !== '') {
-                break;
-            }
-        }
-    }
-
-    $long = '';
-    foreach (['long', 'lng', 'longitude'] as $long_key) {
-        if (array_key_exists($long_key, $store)) {
-            $long = game_bsc_gotit_clean_store_text($store[$long_key]);
-            if ($long !== '') {
-                break;
-            }
-        }
-    }
-
-    $district_name = game_bsc_gotit_clean_store_text($store['districtName'] ?? $store['district_name'] ?? '');
-    $city_name = game_bsc_gotit_clean_store_text($store['cityName'] ?? $store['city_name'] ?? '');
-
-    return [
-        'id' => (int) ($store['id'] ?? $store['storeId'] ?? $store['store_id'] ?? 0),
-        'name' => $name,
-        'address' => $address,
-        'email' => $email,
-        'phone' => $phone,
-        'lat' => $lat,
-        'long' => $long,
-        'districtId' => (int) ($store['districtId'] ?? $store['district_id'] ?? 0),
-        'districtName' => $district_name,
-        'cityId' => (int) ($store['cityId'] ?? $store['city_id'] ?? 0),
-        'cityName' => $city_name,
-        'extraFields' => isset($store['extraFields']) && is_array($store['extraFields']) ? $store['extraFields'] : [],
-        'raw' => $store,
-    ];
+    return game_bsc_gotit_store_normalizer_normalize_store_row($store);
 }
 
 function game_bsc_gotit_collect_store_rows_from_node($node, &$rows, $depth = 0) {
-    if ($depth > 6 || !is_array($node)) {
-        return;
-    }
-
-    if (game_bsc_gotit_is_list_array($node)) {
-        foreach ($node as $child) {
-            if (is_array($child)) {
-                game_bsc_gotit_collect_store_rows_from_node($child, $rows, $depth + 1);
-            }
-        }
-        return;
-    }
-
-    $normalized_row = game_bsc_gotit_normalize_store_row($node);
-    if (!empty($normalized_row)) {
-        $row_key = implode('|', [
-            (string) ($normalized_row['id'] ?? 0),
-            strtolower((string) ($normalized_row['name'] ?? '')),
-            strtolower((string) ($normalized_row['address'] ?? '')),
-        ]);
-
-        if (!isset($rows[$row_key])) {
-            $rows[$row_key] = $normalized_row;
-        }
-    }
-
-    foreach ($node as $key => $value) {
-        if (!is_array($value)) {
-            continue;
-        }
-
-        $lower_key = strtolower((string) $key);
-        $is_store_key = strpos($lower_key, 'store') !== false
-            || strpos($lower_key, 'branch') !== false
-            || strpos($lower_key, 'shop') !== false
-            || strpos($lower_key, 'outlet') !== false
-            || in_array($lower_key, ['items', 'list', 'data', 'stores'], true);
-
-        if ($is_store_key) {
-            game_bsc_gotit_collect_store_rows_from_node($value, $rows, $depth + 1);
-        }
-    }
+    game_bsc_gotit_store_normalizer_collect_store_rows_from_node($node, $rows, $depth);
 }
 
 function game_bsc_gotit_build_fallback_store_rows_from_names($names) {
-    $rows = [];
-    if (!is_array($names) || empty($names)) {
-        return $rows;
-    }
-
-    foreach (array_keys($names) as $name) {
-        $clean_name = game_bsc_gotit_clean_store_text($name);
-        if ($clean_name === '') {
-            continue;
-        }
-
-        $rows[] = [
-            'id' => 0,
-            'name' => $clean_name,
-            'address' => '',
-            'email' => '',
-            'phone' => '',
-            'lat' => '',
-            'long' => '',
-            'districtId' => 0,
-            'districtName' => '',
-            'cityId' => 0,
-            'cityName' => '',
-            'extraFields' => [],
-            'raw' => [],
-        ];
-    }
-
-    return $rows;
+    return game_bsc_gotit_store_normalizer_build_fallback_store_rows_from_names($names);
 }
 
 function game_bsc_gotit_build_applicable_stores_text($stores, $fallback_names = []) {
-    $lines = [];
-
-    if (is_array($stores)) {
-        foreach ($stores as $store) {
-            if (!is_array($store)) {
-                continue;
-            }
-
-            $name = game_bsc_gotit_clean_store_text($store['name'] ?? '');
-            $address = game_bsc_gotit_clean_store_text($store['address'] ?? '');
-            $phone = game_bsc_gotit_clean_store_text($store['phone'] ?? '');
-            $email = game_bsc_gotit_clean_store_text($store['email'] ?? '');
-            $district_name = game_bsc_gotit_clean_store_text($store['districtName'] ?? '');
-            $city_name = game_bsc_gotit_clean_store_text($store['cityName'] ?? '');
-            $lat = game_bsc_gotit_clean_store_text($store['lat'] ?? '');
-            $long = game_bsc_gotit_clean_store_text($store['long'] ?? '');
-            $store_id = (int) ($store['id'] ?? 0);
-
-            if ($name === '' && $address === '' && $phone === '' && $email === '') {
-                continue;
-            }
-
-            $segments = [];
-            $header = $name !== '' ? $name : ('Store #' . ((int) ($store['id'] ?? 0)));
-            if (trim($header) !== 'Store #0') {
-                $segments[] = $header;
-            }
-
-            if ($store_id > 0) {
-                $segments[] = 'ID: ' . $store_id;
-            }
-
-            if ($address !== '') {
-                $segments[] = 'Address: ' . $address;
-            }
-
-            $location_parts = [];
-            if ($district_name !== '') {
-                $location_parts[] = $district_name;
-            }
-            if ($city_name !== '') {
-                $location_parts[] = $city_name;
-            }
-            if (!empty($location_parts)) {
-                $segments[] = 'Area: ' . implode(', ', $location_parts);
-            }
-
-            if ($phone !== '') {
-                $segments[] = 'Phone: ' . $phone;
-            }
-            if ($email !== '') {
-                $segments[] = 'Email: ' . $email;
-            }
-            if ($lat !== '' || $long !== '') {
-                $segments[] = 'GPS: ' . trim($lat . ', ' . $long, ', ');
-            }
-
-            if (!empty($segments)) {
-                $lines[] = implode(' | ', $segments);
-            }
-        }
-    }
-
-    if (empty($lines) && is_array($fallback_names) && !empty($fallback_names)) {
-        foreach (array_keys($fallback_names) as $name) {
-            $clean_name = game_bsc_gotit_clean_store_text($name);
-            if ($clean_name !== '') {
-                $lines[] = $clean_name;
-            }
-        }
-    }
-
-    return implode("\n", $lines);
+    return game_bsc_gotit_store_normalizer_build_applicable_stores_text($stores, $fallback_names);
 }
 
 function game_bsc_gotit_get_existing_stores_payload($post_id) {
-    $post_id = (int) $post_id;
-    if ($post_id < 1) {
-        return ['text' => '', 'stores' => [], 'source' => 'none'];
-    }
-
-    $json = (string) get_post_meta($post_id, '_game_bsc_gotit_applicable_stores_json', true);
-    $stores = json_decode($json, true);
-    if (!is_array($stores)) {
-        $stores = [];
-    }
-
-    $text = (string) get_post_meta($post_id, 'voucher_applicable_stores', true);
-    if ($text === '' && !empty($stores)) {
-        $text = game_bsc_gotit_build_applicable_stores_text($stores);
-    }
-
-    $source = sanitize_text_field((string) get_post_meta($post_id, '_game_bsc_gotit_applicable_stores_source', true));
-    if ($source === '') {
-        $source = 'existing_meta';
-    }
-
-    return [
-        'text' => $text,
-        'stores' => $stores,
-        'source' => $source,
-    ];
+    return game_bsc_gotit_store_normalizer_get_existing_stores_payload($post_id);
 }
 
 function game_bsc_gotit_extract_applicable_stores_text($product) {
-    if (!is_array($product)) {
-        return '';
-    }
-
-    $candidate_nodes = [];
-    foreach ($product as $key => $value) {
-        if (!is_array($value)) {
-            continue;
-        }
-
-        $lower_key = strtolower((string) $key);
-        if (strpos($lower_key, 'store') !== false
-            || strpos($lower_key, 'branch') !== false
-            || strpos($lower_key, 'shop') !== false
-            || strpos($lower_key, 'outlet') !== false) {
-            $candidate_nodes[] = $value;
-        }
-    }
-
-    if (!empty($product['data']) && is_array($product['data'])) {
-        foreach ($product['data'] as $key => $value) {
-            if (!is_array($value)) {
-                continue;
-            }
-
-            $lower_key = strtolower((string) $key);
-            if (strpos($lower_key, 'store') !== false
-                || strpos($lower_key, 'branch') !== false
-                || strpos($lower_key, 'shop') !== false
-                || strpos($lower_key, 'outlet') !== false) {
-                $candidate_nodes[] = $value;
-            }
-        }
-    }
-
-    $names = [];
-    foreach ($candidate_nodes as $node) {
-        game_bsc_gotit_collect_store_names_from_node($node, $names, 0);
-    }
-
-    if (!empty($product['extraFields']) && is_array($product['extraFields'])) {
-        foreach ($product['extraFields'] as $field) {
-            if (!is_array($field)) {
-                continue;
-            }
-
-            $field_key = strtolower((string) ($field['key'] ?? $field['name'] ?? ''));
-            if ($field_key === ''
-                || (strpos($field_key, 'store') === false
-                    && strpos($field_key, 'branch') === false
-                    && strpos($field_key, 'shop') === false
-                    && strpos($field_key, 'outlet') === false)) {
-                continue;
-            }
-
-            game_bsc_gotit_collect_store_names_from_node($field, $names, 0);
-            foreach (['value', 'values', 'content', 'label'] as $value_key) {
-                if (array_key_exists($value_key, $field)) {
-                    game_bsc_gotit_collect_store_names_from_text($field[$value_key], $names);
-                }
-            }
-        }
-    }
-
-    if (empty($names)) {
-        return '';
-    }
-
-    return implode("\n", array_keys($names));
+    return game_bsc_gotit_store_normalizer_extract_applicable_stores_text($product);
 }
 
 function game_bsc_gotit_extract_total_pages_from_stores_result($result) {
-    $raw = (string) ($result['raw'] ?? '');
-    if ($raw === '') {
-        return 1;
-    }
-
-    $decoded = json_decode($raw, true);
-    if (!is_array($decoded)) {
-        return 1;
-    }
-
-    $candidates = [
-        (int) ($decoded['pagination']['totalPage'] ?? 0),
-        (int) ($decoded['pagination']['lastPage'] ?? 0),
-        (int) ($decoded['data']['pagination']['totalPage'] ?? 0),
-        (int) ($decoded['data']['pagination']['lastPage'] ?? 0),
-        (int) ($decoded['data'][0]['storePagination']['totalPage'] ?? 0),
-        (int) ($decoded['data'][0]['pagination']['totalPage'] ?? 0),
-        (int) ($decoded['data'][0]['pagination']['lastPage'] ?? 0),
-    ];
-
-    return max(1, ...$candidates);
+    return game_bsc_gotit_store_normalizer_extract_total_pages_from_stores_result($result);
 }
 
 function game_bsc_gotit_fetch_applicable_stores_from_api($client, $product_id) {
-    $product_id = (int) $product_id;
-    if (!is_object($client) || $product_id < 1) {
-        return [
-            'text' => '',
-            'stores' => [],
-            'source' => 'stores_api',
-            'error' => 'invalid_client_or_product',
-            'http_code' => 0,
-        ];
-    }
-
-    $names = [];
-    $rows = [];
-    $last_error = '';
-    $last_http_code = 0;
-    $page = 1;
-    $page_size = 100;
-    $max_pages = 20;
-    $total_pages = 1;
-
-    do {
-        $result = $client->get_product_stores($product_id, $page, $page_size);
-        if (empty($result['success'])) {
-            $last_error = sanitize_text_field((string) ($result['error'] ?? 'cannot_fetch_product_stores'));
-            $last_http_code = (int) ($result['http_code'] ?? 0);
-            break;
-        }
-
-        if (is_array($result['data'] ?? null)) {
-            game_bsc_gotit_collect_store_names_from_node($result['data'], $names, 0);
-            game_bsc_gotit_collect_store_rows_from_node($result['data'], $rows, 0);
-        }
-
-        $total_pages = game_bsc_gotit_extract_total_pages_from_stores_result($result);
-        $page++;
-    } while ($page <= $total_pages && $page <= $max_pages);
-
-    $stores = array_values($rows);
-    if (empty($stores) && !empty($names)) {
-        $stores = game_bsc_gotit_build_fallback_store_rows_from_names($names);
-    }
-
-    return [
-        'text' => game_bsc_gotit_build_applicable_stores_text($stores, $names),
-        'stores' => $stores,
-        'source' => 'stores_api',
-        'error' => $last_error,
-        'http_code' => $last_http_code,
-    ];
+    return game_bsc_gotit_store_normalizer_fetch_applicable_stores_from_api($client, $product_id);
 }
 
 function game_bsc_gotit_pick_scalar_recursive($payload, $keys) {
-    if (!is_array($payload)) {
-        return null;
-    }
-
-    foreach ($keys as $key) {
-        if (array_key_exists($key, $payload) && is_scalar($payload[$key])) {
-            return $payload[$key];
-        }
-    }
-
-    foreach ($payload as $value) {
-        if (is_array($value)) {
-            $found = game_bsc_gotit_pick_scalar_recursive($value, $keys);
-            if ($found !== null && $found !== '') {
-                return $found;
-            }
-        }
-    }
-
-    return null;
+    return game_bsc_gotit_issue_parser_pick_scalar_recursive($payload, $keys);
 }
 
 function game_bsc_gotit_collect_issue_candidates($payload) {
-    $candidates = [];
-    if (!is_array($payload)) {
-        return $candidates;
-    }
-
-    $candidates[] = $payload;
-
-    foreach (['voucher', 'item', 'data'] as $key) {
-        if (isset($payload[$key]) && is_array($payload[$key])) {
-            $candidates[] = $payload[$key];
-        }
-    }
-
-    foreach (['vouchers', 'items', 'list'] as $key) {
-        if (!isset($payload[$key]) || !is_array($payload[$key])) {
-            continue;
-        }
-
-        if (game_bsc_gotit_is_list_array($payload[$key])) {
-            foreach ($payload[$key] as $row) {
-                if (is_array($row)) {
-                    $candidates[] = $row;
-                }
-            }
-        } else {
-            $candidates[] = $payload[$key];
-        }
-    }
-
-    if (game_bsc_gotit_is_list_array($payload)) {
-        foreach ($payload as $row) {
-            if (is_array($row)) {
-                $candidates[] = $row;
-            }
-        }
-    }
-
-    return $candidates;
+    return game_bsc_gotit_issue_parser_collect_issue_candidates($payload);
 }
 
 function game_bsc_gotit_pick_issue_value($candidates, $keys) {
-    foreach ($candidates as $candidate) {
-        $value = game_bsc_gotit_pick_scalar_recursive($candidate, $keys);
-        if ($value !== null && $value !== '') {
-            return $value;
-        }
-    }
-
-    return null;
+    return game_bsc_gotit_issue_parser_pick_issue_value($candidates, $keys);
 }
 
 function game_bsc_gotit_extract_issue_data($payload) {
-    $candidates = game_bsc_gotit_collect_issue_candidates(is_array($payload) ? $payload : []);
-
-    $voucher_code = sanitize_text_field((string) (game_bsc_gotit_pick_issue_value($candidates, ['voucherCode', 'voucher_code', 'code']) ?? ''));
-    $voucher_link = esc_url_raw((string) (game_bsc_gotit_pick_issue_value($candidates, ['voucherLink', 'voucher_link', 'link', 'url']) ?? ''));
-    $voucher_image = esc_url_raw((string) (game_bsc_gotit_pick_issue_value($candidates, ['image', 'voucherImage', 'voucher_image', 'imageUrl', 'image_url']) ?? ''));
-    $voucher_serial = sanitize_text_field((string) (game_bsc_gotit_pick_issue_value($candidates, ['serial', 'serialNo', 'serial_no', 'voucherSerial', 'voucher_serial']) ?? ''));
-    $expiry_date = sanitize_text_field((string) (game_bsc_gotit_pick_issue_value($candidates, ['expiryDate', 'expiry_date', 'expiredDate', 'expired_date', 'validTo', 'valid_to']) ?? ''));
-    $vendor_name = sanitize_text_field((string) (game_bsc_gotit_pick_issue_value($candidates, ['vendorName', 'vendor_name', 'vendor', 'partnerName', 'partner_name']) ?? ''));
-
-    $status_raw = game_bsc_gotit_pick_issue_value($candidates, ['status', 'state', 'stateCode', 'state_code', 'newStateCode']);
-    $status = is_numeric($status_raw) ? (int) $status_raw : 0;
-
-    $is_partner_raw = game_bsc_gotit_pick_issue_value($candidates, ['isPartnerCode', 'is_partner_code', 'partnerCode', 'partner_code', 'isPartner']);
-    $is_partner_code = 0;
-    if ($is_partner_raw !== null) {
-        $is_partner_code = in_array(strtolower((string) $is_partner_raw), ['1', 'true', 'yes'], true) ? 1 : 0;
-        if ($is_partner_raw === true || $is_partner_raw === 1) {
-            $is_partner_code = 1;
-        }
-    }
-
-    return [
-        'voucher_code' => $voucher_code,
-        'voucher_link' => $voucher_link,
-        'voucher_image' => $voucher_image,
-        'voucher_serial' => $voucher_serial,
-        'expiry_date' => $expiry_date,
-        'vendor_name' => $vendor_name,
-        'status' => $status,
-        'is_partner_code' => $is_partner_code,
-    ];
+    return game_bsc_gotit_issue_parser_extract_issue_data($payload);
 }
 
 function game_bsc_gotit_extract_vouchers_from_ref_payload($payload) {
-    $rows = [];
-    if (!is_array($payload)) {
-        return $rows;
-    }
-
-    $stack = [$payload];
-    while (!empty($stack)) {
-        $node = array_pop($stack);
-        if (!is_array($node)) {
-            continue;
-        }
-
-        if (isset($node['vouchers']) && is_array($node['vouchers'])) {
-            foreach ($node['vouchers'] as $voucher) {
-                if (is_array($voucher)) {
-                    $rows[] = $voucher;
-                }
-            }
-        }
-
-        if (isset($node['data']) && is_array($node['data'])) {
-            $stack[] = $node['data'];
-        }
-
-        if (game_bsc_gotit_is_list_array($node)) {
-            foreach ($node as $child) {
-                if (is_array($child)) {
-                    $stack[] = $child;
-                }
-            }
-        }
-    }
-
-    if (empty($rows)) {
-        return $rows;
-    }
-
-    $unique = [];
-    $deduped = [];
-    foreach ($rows as $idx => $voucher) {
-        $key = implode('|', [
-            sanitize_text_field((string) ($voucher['serial'] ?? '')),
-            sanitize_text_field((string) ($voucher['code'] ?? '')),
-            esc_url_raw((string) ($voucher['link'] ?? '')),
-            (string) $idx,
-        ]);
-
-        if (isset($unique[$key])) {
-            continue;
-        }
-
-        $unique[$key] = true;
-        $deduped[] = $voucher;
-    }
-
-    return $deduped;
+    return game_bsc_gotit_issue_parser_extract_vouchers_from_ref_payload($payload);
 }
 
 function game_bsc_gotit_extract_ref_pagination($payload) {
-    if (!is_array($payload)) {
-        return [];
-    }
-
-    $sources = [$payload];
-    if (isset($payload['data']) && is_array($payload['data'])) {
-        $sources[] = $payload['data'];
-    }
-
-    foreach ($sources as $source) {
-        if (empty($source['pagination']) || !is_array($source['pagination'])) {
-            continue;
-        }
-
-        return [
-            'page' => (int) ($source['pagination']['page'] ?? 0),
-            'pageSize' => (int) ($source['pagination']['pageSize'] ?? 0),
-            'totalPage' => (int) ($source['pagination']['totalPage'] ?? 0),
-        ];
-    }
-
-    return [];
+    return game_bsc_gotit_issue_parser_extract_ref_pagination($payload);
 }
 
 function game_bsc_gotit_build_ref_voucher_summary($vouchers) {
-    $summary = [
-        'total' => 0,
-        'used' => 0,
-        'unused' => 0,
-        'states' => [],
-        'first_used_info' => null,
-    ];
-
-    if (!is_array($vouchers) || empty($vouchers)) {
-        return $summary;
-    }
-
-    $summary['total'] = count($vouchers);
-    $states = [];
-
-    foreach ($vouchers as $voucher) {
-        if (!is_array($voucher)) {
-            continue;
-        }
-
-        $state_info = [];
-        if (isset($voucher['stateInfo']) && is_array($voucher['stateInfo'])) {
-            $state_info = $voucher['stateInfo'];
-        } elseif (isset($voucher['state_info']) && is_array($voucher['state_info'])) {
-            $state_info = $voucher['state_info'];
-        }
-
-        $state_code = 0;
-        foreach (['code', 'stateCode', 'state_code', 'state', 'status'] as $state_key) {
-            if (isset($state_info[$state_key]) && is_numeric($state_info[$state_key])) {
-                $state_code = (int) $state_info[$state_key];
-                break;
-            }
-
-            if (isset($voucher[$state_key]) && is_numeric($voucher[$state_key])) {
-                $state_code = (int) $voucher[$state_key];
-                break;
-            }
-        }
-
-        $state_text = sanitize_text_field((string) ($state_info['status'] ?? $state_info['name'] ?? ''));
-        if ($state_code > 0) {
-            if (!isset($states[$state_code])) {
-                $states[$state_code] = [
-                    'code' => $state_code,
-                    'status' => $state_text,
-                    'count' => 0,
-                ];
-            }
-
-            $states[$state_code]['count']++;
-            if ($states[$state_code]['status'] === '' && $state_text !== '') {
-                $states[$state_code]['status'] = $state_text;
-            }
-        }
-
-        $used_info = null;
-        if (isset($voucher['usedInfo']) && is_array($voucher['usedInfo'])) {
-            $used_info = $voucher['usedInfo'];
-        } elseif (isset($voucher['used_info']) && is_array($voucher['used_info'])) {
-            $used_info = $voucher['used_info'];
-        }
-
-        $has_used_data = false;
-        if (is_array($used_info)) {
-            foreach ($used_info as $value) {
-                if ($value !== null && $value !== '') {
-                    $has_used_data = true;
-                    break;
-                }
-            }
-        }
-
-        if ($state_code === 4 || $has_used_data) {
-            $summary['used']++;
-
-            if ($summary['first_used_info'] === null && is_array($used_info)) {
-                $summary['first_used_info'] = [
-                    'store' => sanitize_text_field((string) ($used_info['store'] ?? $used_info['storeName'] ?? '')),
-                    'time' => sanitize_text_field((string) ($used_info['time'] ?? '')),
-                    'brand_name' => sanitize_text_field((string) ($used_info['brandName'] ?? $used_info['brand_name'] ?? '')),
-                    'method' => sanitize_text_field((string) ($used_info['method'] ?? '')),
-                ];
-            }
-        }
-    }
-
-    ksort($states);
-    $summary['states'] = array_values($states);
-    $summary['unused'] = max(0, (int) $summary['total'] - (int) $summary['used']);
-
-    return $summary;
+    return game_bsc_gotit_issue_parser_build_ref_voucher_summary($vouchers);
 }
 
 function game_bsc_gotit_set_voucher_field($post_id, $field_name, $value) {
@@ -1379,6 +433,8 @@ function game_bsc_gotit_assign_voucher_category($post_id, $category_name, $appen
 function game_bsc_gotit_async_sync_default_state() {
     return [
         'job_id' => '',
+        'source' => '',
+        'cancel_requested' => 0,
         'status' => 'idle',
         'message' => '',
         'queued_at' => '',
@@ -1394,7 +450,56 @@ function game_bsc_gotit_async_sync_default_state() {
         'detail_calls' => 0,
         'errors_count' => 0,
         'last_error' => '',
+        'current_page' => 0,
+        'total_pages' => 0,
+        'pages_processed' => 0,
+        'category_queue' => [],
+        'category_index' => 0,
     ];
+}
+
+function game_bsc_gotit_normalize_category_queue($value) {
+    if (!is_array($value)) {
+        return [];
+    }
+
+    $queue = [];
+    foreach ($value as $raw_id) {
+        $category_id = absint($raw_id);
+        if ($category_id > 0) {
+            $queue[$category_id] = $category_id;
+        }
+    }
+
+    return array_values($queue);
+}
+
+function game_bsc_gotit_collect_category_ids_for_sync($client = null) {
+    if (!$client) {
+        $client = game_bsc_gotit_client();
+    }
+
+    if (!$client || !$client->is_configured()) {
+        return [];
+    }
+
+    $categories_map = $client->get_categories_map();
+    if (!is_array($categories_map) || empty($categories_map)) {
+        return [];
+    }
+
+    $ids = [];
+    foreach ($categories_map as $category_id => $cat_data) {
+        $normalized_id = absint($category_id);
+        if ($normalized_id > 0) {
+            $ids[$normalized_id] = $normalized_id;
+        }
+    }
+
+    $ids = array_values($ids);
+    sort($ids, SORT_NUMERIC);
+
+    return $ids;
 }
 
 function game_bsc_gotit_async_sync_get_state() {
@@ -1413,15 +518,224 @@ function game_bsc_gotit_async_sync_update_state($patch) {
     return $next;
 }
 
+function game_bsc_gotit_sync_runtime_config() {
+    $pages_per_run = (int) apply_filters('game_bsc_gotit_sync_pages_per_run', 1);
+    $page_size = (int) apply_filters('game_bsc_gotit_sync_page_size', 30);
+    $worker_delay_seconds = (int) apply_filters('game_bsc_gotit_sync_worker_delay_seconds', 8);
+
+    return [
+        'pages_per_run' => max(1, min(5, $pages_per_run)),
+        'page_size' => max(20, min(100, $page_size)),
+        'worker_delay_seconds' => max(3, min(60, $worker_delay_seconds)),
+    ];
+}
+
+function game_bsc_schedule_gotit_async_worker($job_id, $gotit_category_id, $requested_by, $page = 1, $delay_seconds = 1, $trigger_spawn = false) {
+    $delay_seconds = max(1, (int) $delay_seconds);
+    $page = max(1, (int) $page);
+
+    wp_schedule_single_event(
+        time() + $delay_seconds,
+        'game_bsc_gotit_async_sync_event',
+        [(string) $job_id, (int) $gotit_category_id, (int) $requested_by, $page]
+    );
+
+    if (
+        $trigger_spawn
+        && function_exists('spawn_cron')
+        && !wp_doing_cron()
+        && !is_admin()
+        && !get_transient('game_bsc_spawn_cron_throttle')
+    ) {
+        set_transient('game_bsc_spawn_cron_throttle', 1, 30);
+        spawn_cron(time());
+    }
+}
+
+function game_bsc_clear_gotit_async_worker_queue() {
+    wp_clear_scheduled_hook('game_bsc_gotit_async_sync_event');
+}
+
+function game_bsc_gotit_async_sync_worker_health() {
+    $next_run_ts = wp_next_scheduled('game_bsc_gotit_async_sync_event');
+
+    return [
+        'has_lock' => (bool) get_transient('game_bsc_gotit_async_sync_lock'),
+        'next_run_ts' => $next_run_ts ? (int) $next_run_ts : 0,
+    ];
+}
+
+function game_bsc_gotit_async_sync_reconcile_state($state = null) {
+    if (!is_array($state)) {
+        $state = game_bsc_gotit_async_sync_get_state();
+    }
+
+    $health = game_bsc_gotit_async_sync_worker_health();
+    $status = (string) ($state['status'] ?? 'idle');
+
+    if ($status === 'stopping' && empty($health['has_lock']) && empty($health['next_run_ts'])) {
+        $state = game_bsc_gotit_async_sync_update_state([
+            'status' => 'stopped',
+            'message' => 'Đã dừng đồng bộ theo yêu cầu.',
+            'finished_at' => current_time('mysql'),
+            'cancel_requested' => 0,
+        ]);
+    }
+
+    return [
+        'state' => $state,
+        'next_run_ts' => (int) ($health['next_run_ts'] ?? 0),
+    ];
+}
+
+function game_bsc_start_gotit_sync_job($args = []) {
+    $gotit_category_id = isset($args['gotit_category_id']) ? absint($args['gotit_category_id']) : 0;
+    $requested_by = isset($args['requested_by']) ? absint($args['requested_by']) : get_current_user_id();
+    $source = sanitize_text_field((string) ($args['source'] ?? 'manual-admin-async'));
+    $category_queue = game_bsc_gotit_normalize_category_queue($args['category_queue'] ?? []);
+    $category_index = isset($args['category_index']) ? max(0, (int) $args['category_index']) : 0;
+
+    if (!empty($category_queue)) {
+        if ($category_index >= count($category_queue)) {
+            $category_index = 0;
+        }
+        if ($gotit_category_id < 1) {
+            $gotit_category_id = (int) $category_queue[$category_index];
+        }
+    }
+
+    $state = game_bsc_gotit_async_sync_get_state();
+    if (in_array((string) ($state['status'] ?? ''), ['queued', 'running', 'stopping'], true)) {
+        return [
+            'success' => true,
+            'already_running' => true,
+            'status' => $state,
+        ];
+    }
+
+    $job_id = sanitize_text_field((string) ($args['job_id'] ?? ''));
+    if ($job_id === '') {
+        $job_id = uniqid('gotit_sync_', true);
+    }
+
+    game_bsc_clear_gotit_async_worker_queue();
+
+    $queued_at = current_time('mysql');
+    $next_state = game_bsc_gotit_async_sync_update_state([
+        'job_id' => $job_id,
+        'source' => $source,
+        'cancel_requested' => 0,
+        'status' => 'queued',
+        'message' => 'Đã đưa sync vào hàng đợi.',
+        'queued_at' => $queued_at,
+        'started_at' => '',
+        'finished_at' => '',
+        'requested_by' => $requested_by,
+        'gotit_category_id' => $gotit_category_id,
+        'filter_category' => '',
+        'created' => 0,
+        'updated' => 0,
+        'skipped' => 0,
+        'products_count' => 0,
+        'detail_calls' => 0,
+        'errors_count' => 0,
+        'last_error' => '',
+        'current_page' => 1,
+        'total_pages' => 0,
+        'pages_processed' => 0,
+        'category_queue' => $category_queue,
+        'category_index' => $category_index,
+    ]);
+
+    game_bsc_schedule_gotit_async_worker($job_id, $gotit_category_id, $requested_by, 1, 1, true);
+
+    return [
+        'success' => true,
+        'already_running' => false,
+        'status' => $next_state,
+    ];
+}
+
+function game_bsc_request_stop_gotit_sync_job($requested_by = 0) {
+    $state = game_bsc_gotit_async_sync_get_state();
+    $status = (string) ($state['status'] ?? 'idle');
+
+    if (!in_array($status, ['queued', 'running', 'stopping'], true)) {
+        return [
+            'success' => false,
+            'message' => 'Không có phiên sync đang chạy để dừng.',
+            'status' => $state,
+        ];
+    }
+
+    game_bsc_clear_gotit_async_worker_queue();
+    $health = game_bsc_gotit_async_sync_worker_health();
+
+    $next_state_patch = [
+        'cancel_requested' => 1,
+        'status' => 'stopping',
+        'message' => 'Đã nhận yêu cầu dừng. Worker sẽ dừng sau batch hiện tại.',
+        'requested_by' => absint($requested_by),
+    ];
+
+    if (
+        $status === 'queued'
+        || ($status === 'running' && empty($health['has_lock']) && empty($health['next_run_ts']))
+    ) {
+        $next_state_patch['status'] = 'stopped';
+        $next_state_patch['message'] = 'Đã dừng đồng bộ theo yêu cầu.';
+        $next_state_patch['finished_at'] = current_time('mysql');
+        $next_state_patch['cancel_requested'] = 0;
+    }
+
+    $next_state = game_bsc_gotit_async_sync_update_state($next_state_patch);
+
+    return [
+        'success' => true,
+        'message' => 'Đã gửi yêu cầu dừng đồng bộ.',
+        'status' => $next_state,
+    ];
+}
+
+/**
+ * WSAL: Bỏ qua log event khi đang sync voucher Got It (tránh ghi vào wp_wsal_occurrences).
+ */
+function game_bsc_wsal_suppress_event_during_sync($event_id, $event_data) {
+    return null; // Trả về null để WSAL bỏ qua, không ghi DB
+}
+
+/**
+ * WSAL: Bỏ qua log post meta create/update/delete khi post type là game_vouchers và đang sync.
+ */
+function game_bsc_wsal_suppress_meta_event_during_sync($log_event, $meta_key, $meta_value, $post) {
+    if ($post && isset($post->post_type) && $post->post_type === 'game_vouchers') {
+        return false;
+    }
+    return $log_event;
+}
+
 function game_bsc_sync_gotit_products_to_vouchers($args = []) {
     $client = game_bsc_gotit_client();
     if (!$client->is_configured()) {
         return ['success' => false, 'message' => 'Got It API key is not configured.'];
     }
 
+    // ===== TẮT WSAL LOGGING TRONG KHI SYNC VOUCHER =====
+    // Ngăn plugin WP Security Audit Log ghi vào wp_wsal_occurrences và wp_wsal_metadata
+    add_filter('wsal_event_id_before_log',               'game_bsc_wsal_suppress_event_during_sync',      PHP_INT_MAX, 2);
+    add_filter('wsal_before_post_meta_create_event',     'game_bsc_wsal_suppress_meta_event_during_sync', PHP_INT_MAX, 4);
+    add_filter('wsal_before_post_meta_update_event',     'game_bsc_wsal_suppress_meta_event_during_sync', PHP_INT_MAX, 4);
+    add_filter('wsal_before_post_meta_delete_event',     'game_bsc_wsal_suppress_meta_event_during_sync', PHP_INT_MAX, 4);
+
     $max_pages     = isset($args['max_pages']) ? max(1, (int) $args['max_pages']) : 30;
     $source        = sanitize_text_field((string) ($args['source'] ?? 'manual'));
     $filter_cat_id = isset($args['gotit_category_id']) ? (int) $args['gotit_category_id'] : 0;
+    $start_page    = isset($args['start_page']) ? max(1, (int) $args['start_page']) : 1;
+    $pages_per_run = isset($args['pages_per_run']) ? max(1, min(5, (int) $args['pages_per_run'])) : 1;
+    $page_size     = isset($args['page_size']) ? max(20, min(100, (int) $args['page_size'])) : 50;
+    $lightweight_mode = array_key_exists('lightweight_mode', $args)
+        ? (bool) $args['lightweight_mode']
+        : (bool) apply_filters('game_bsc_gotit_sync_lightweight_mode', true, $source);
 
     // ===== FILTERS =====
     $excluded_raw  = (string) game_bsc_gotit_source_value('excluded_product_ids', '');
@@ -1429,7 +743,14 @@ function game_bsc_sync_gotit_products_to_vouchers($args = []) {
     $min_price_val = max(0, (int) game_bsc_gotit_source_value('min_price_value', 1000));
 
     // ===== STEP 1: LẤY CATEGORIES MAP =====
-    $categories_map = $client->get_categories_map();
+    $categories_cache_key = 'game_bsc_gotit_categories_map';
+    $categories_map = get_transient($categories_cache_key);
+    if (!is_array($categories_map) || empty($categories_map)) {
+        $categories_map = $client->get_categories_map();
+        if (is_array($categories_map) && !empty($categories_map)) {
+            set_transient($categories_cache_key, $categories_map, 6 * HOUR_IN_SECONDS);
+        }
+    }
 
     // ===== COUNTERS =====
     $created      = 0;
@@ -1451,18 +772,22 @@ function game_bsc_sync_gotit_products_to_vouchers($args = []) {
         $extra_filters['categoryId'] = $filter_cat_id;
     }
 
-    $page        = 1;
-    $total_pages = 1;
+    $page        = $start_page;
+    $total_pages = max(1, $start_page);
+    $pages_processed = 0;
+    $last_processed_page = $start_page - 1;
+    $fetch_failed = false;
     $product_stores_cache = []; // productId -> ['text' => string, 'stores' => array, 'source' => string]
 
     do {
-        $result = $client->get_products($page, 100, $extra_filters);
+        $result = $client->get_products($page, $page_size, $extra_filters);
 
         if (empty($result['success'])) {
             $errors[] = [
                 'message'   => (string) ($result['error'] ?? 'Cannot fetch products.'),
                 'http_code' => (int) ($result['http_code'] ?? 0),
             ];
+            $fetch_failed = true;
             break;
         }
 
@@ -1544,7 +869,15 @@ function game_bsc_sync_gotit_products_to_vouchers($args = []) {
             $prod_cat = $product_category_cache[$pid];
 
             if (!isset($product_stores_cache[$pid])) {
-                $stores_payload = game_bsc_gotit_fetch_applicable_stores_from_api($client, $pid);
+                if ($lightweight_mode) {
+                    $stores_payload = [
+                        'text' => '',
+                        'stores' => [],
+                        'source' => 'lightweight_mode',
+                    ];
+                } else {
+                    $stores_payload = game_bsc_gotit_fetch_applicable_stores_from_api($client, $pid);
+                }
                 if (!is_array($stores_payload)) {
                     $stores_payload = [
                         'text' => '',
@@ -1768,17 +1101,33 @@ function game_bsc_sync_gotit_products_to_vouchers($args = []) {
             (int) ($decoded['data']['totalPage'] ?? 0),
             (int) ($decoded['paging']['totalPage'] ?? 0)
         );
+        $last_processed_page = $page;
+        $pages_processed++;
         $page++;
 
-    } while ($page <= $total_pages && $page <= $max_pages);
+    } while (
+        $page <= $total_pages
+        && $page <= $max_pages
+        && $pages_processed < $pages_per_run
+    );
 
     $filter_label = $filter_cat_id > 0
         ? ($categories_map[$filter_cat_id]['name'] ?? 'ID ' . $filter_cat_id)
         : 'Tất cả danh mục';
 
+    // ===== KHÔI PHỤC WSAL LOGGING SAU KHI SYNC XONG =====
+    remove_filter('wsal_event_id_before_log',               'game_bsc_wsal_suppress_event_during_sync',      PHP_INT_MAX);
+    remove_filter('wsal_before_post_meta_create_event',     'game_bsc_wsal_suppress_meta_event_during_sync', PHP_INT_MAX);
+    remove_filter('wsal_before_post_meta_update_event',     'game_bsc_wsal_suppress_meta_event_during_sync', PHP_INT_MAX);
+    remove_filter('wsal_before_post_meta_delete_event',     'game_bsc_wsal_suppress_meta_event_during_sync', PHP_INT_MAX);
+
+    $is_complete = $fetch_failed || $page > $total_pages || $page > $max_pages;
+    $next_page = $is_complete ? 0 : $page;
+    $sync_success = !($fetch_failed && $pages_processed === 0);
+
     return [
-        'success'         => true,
-        'message'         => 'Sync completed.',
+        'success'         => $sync_success,
+        'message'         => $sync_success ? 'Sync completed.' : 'Cannot fetch products from Got It API.',
         'created'         => $created,
         'updated'         => $updated,
         'skipped'         => $skipped,
@@ -1786,6 +1135,12 @@ function game_bsc_sync_gotit_products_to_vouchers($args = []) {
         'products_count'  => count($written_keys),
         'detail_calls'    => $detail_api_calls,
         'filter_category' => $filter_label,
+        'is_complete'     => $is_complete,
+        'next_page'       => $next_page,
+        'current_page'    => max(1, $last_processed_page),
+        'total_pages'     => (int) $total_pages,
+        'pages_processed' => (int) $pages_processed,
+        'fetch_failed'    => $fetch_failed,
     ];
 }
 
@@ -1794,16 +1149,23 @@ function game_bsc_ajax_gotit_sync_vouchers() {
 
     $gotit_category_id = absint($_POST['gotit_category_id'] ?? 0);
 
-    $result = game_bsc_sync_gotit_products_to_vouchers([
-        'source'           => 'manual-admin',
+    $result = game_bsc_start_gotit_sync_job([
+        'source' => 'manual-admin',
         'gotit_category_id' => $gotit_category_id,
+        'requested_by' => get_current_user_id(),
     ]);
 
     if (!empty($result['success'])) {
-        wp_send_json_success($result);
+        $message = !empty($result['already_running'])
+            ? 'Đã có phiên sync đang chạy.'
+            : 'Đã đưa sync voucher vào hàng đợi nền.';
+        wp_send_json_success([
+            'message' => $message,
+            'status' => $result['status'] ?? game_bsc_gotit_async_sync_get_state(),
+        ]);
     }
 
-    wp_send_json_error($result, 400);
+    wp_send_json_error(['message' => 'Không thể bắt đầu sync voucher.'], 400);
 }
 add_action('wp_ajax_game_bsc_gotit_sync_vouchers', 'game_bsc_ajax_gotit_sync_vouchers');
 
@@ -1825,37 +1187,17 @@ function game_bsc_ajax_gotit_sync_vouchers_async_start() {
         ]);
     }
 
-    $job_id = uniqid('gotit_sync_', true);
-    $requested_by = get_current_user_id();
-    $queued_at = current_time('mysql');
-
-    $state = game_bsc_gotit_async_sync_update_state([
-        'job_id' => $job_id,
-        'status' => 'queued',
-        'message' => 'Đã đưa sync vào hàng đợi.',
-        'queued_at' => $queued_at,
-        'started_at' => '',
-        'finished_at' => '',
-        'requested_by' => $requested_by,
+    $started = game_bsc_start_gotit_sync_job([
+        'source' => 'manual-admin-async',
         'gotit_category_id' => $gotit_category_id,
-        'filter_category' => '',
-        'created' => 0,
-        'updated' => 0,
-        'skipped' => 0,
-        'products_count' => 0,
-        'detail_calls' => 0,
-        'errors_count' => 0,
-        'last_error' => '',
+        'requested_by' => get_current_user_id(),
     ]);
 
-    wp_schedule_single_event(time() + 1, 'game_bsc_gotit_async_sync_event', [$job_id, $gotit_category_id, $requested_by]);
-    if (function_exists('spawn_cron')) {
-        spawn_cron(time());
-    }
-
     wp_send_json_success([
-        'message' => 'Đã bắt đầu sync bất đồng bộ.',
-        'status' => $state,
+        'message' => !empty($started['already_running'])
+            ? 'Đã có phiên sync đang chạy.'
+            : 'Đã bắt đầu sync bất đồng bộ.',
+        'status' => $started['status'] ?? game_bsc_gotit_async_sync_get_state(),
     ]);
 }
 add_action('wp_ajax_game_bsc_gotit_sync_vouchers_async_start', 'game_bsc_ajax_gotit_sync_vouchers_async_start');
@@ -1863,23 +1205,48 @@ add_action('wp_ajax_game_bsc_gotit_sync_vouchers_async_start', 'game_bsc_ajax_go
 function game_bsc_ajax_gotit_sync_vouchers_async_status() {
     game_bsc_gotit_test_guard();
 
-    $state = game_bsc_gotit_async_sync_get_state();
-    $next_run_ts = wp_next_scheduled('game_bsc_gotit_async_sync_event');
+    $status_cache_key = 'game_bsc_gotit_sync_status_cache_' . absint(get_current_user_id());
+    $cached = get_transient($status_cache_key);
+    if (is_array($cached)) {
+        wp_send_json_success($cached);
+    }
 
-    wp_send_json_success([
+    $reconciled = game_bsc_gotit_async_sync_reconcile_state();
+    $state = is_array($reconciled['state'] ?? null)
+        ? $reconciled['state']
+        : game_bsc_gotit_async_sync_get_state();
+    $next_run_ts = (int) ($reconciled['next_run_ts'] ?? 0);
+
+    $payload = [
         'status' => $state,
-        'next_run_ts' => $next_run_ts ? (int) $next_run_ts : 0,
-    ]);
+        'next_run_ts' => $next_run_ts,
+    ];
+
+    set_transient($status_cache_key, $payload, 2);
+
+    wp_send_json_success($payload);
 }
 add_action('wp_ajax_game_bsc_gotit_sync_vouchers_async_status', 'game_bsc_ajax_gotit_sync_vouchers_async_status');
 
-function game_bsc_run_gotit_async_sync_event($job_id = '', $gotit_category_id = 0, $requested_by = 0) {
+function game_bsc_ajax_gotit_sync_vouchers_async_stop() {
+    game_bsc_gotit_test_guard();
+
+    $result = game_bsc_request_stop_gotit_sync_job(get_current_user_id());
+    if (!empty($result['success'])) {
+        wp_send_json_success($result);
+    }
+
+    wp_send_json_error($result, 409);
+}
+add_action('wp_ajax_game_bsc_gotit_sync_vouchers_async_stop', 'game_bsc_ajax_gotit_sync_vouchers_async_stop');
+
+function game_bsc_run_gotit_async_sync_event($job_id = '', $gotit_category_id = 0, $requested_by = 0, $start_page = 1) {
     $lock_key = 'game_bsc_gotit_async_sync_lock';
     if (get_transient($lock_key)) {
         return;
     }
 
-    set_transient($lock_key, 1, 45 * MINUTE_IN_SECONDS);
+    set_transient($lock_key, 1, 10 * MINUTE_IN_SECONDS);
 
     try {
         $state = game_bsc_gotit_async_sync_get_state();
@@ -1887,56 +1254,188 @@ function game_bsc_run_gotit_async_sync_event($job_id = '', $gotit_category_id = 
             return;
         }
 
+        if (in_array((string) ($state['status'] ?? ''), ['done', 'error'], true)) {
+            game_bsc_clear_gotit_async_worker_queue();
+            return;
+        }
+
+        if (!empty($state['cancel_requested'])) {
+            game_bsc_clear_gotit_async_worker_queue();
+            game_bsc_gotit_async_sync_update_state([
+                'status' => 'stopped',
+                'message' => 'Đã dừng đồng bộ theo yêu cầu.',
+                'finished_at' => current_time('mysql'),
+                'cancel_requested' => 0,
+            ]);
+            return;
+        }
+
+        $runtime = game_bsc_gotit_sync_runtime_config();
+        $sync_source = sanitize_text_field((string) ($state['source'] ?? 'manual-admin-async'));
+        $category_queue = game_bsc_gotit_normalize_category_queue($state['category_queue'] ?? []);
+        $category_index = max(0, (int) ($state['category_index'] ?? 0));
+
+        if (!empty($category_queue)) {
+            if ($category_index >= count($category_queue)) {
+                $category_index = 0;
+            }
+            $gotit_category_id = (int) $category_queue[$category_index];
+        }
+
+        $start_page = max(1, (int) $start_page);
+        $state_current_page = max(1, (int) ($state['current_page'] ?? 1));
+        if ((string) ($state['status'] ?? '') === 'running' && $start_page < $state_current_page) {
+            return;
+        }
+
         game_bsc_gotit_async_sync_update_state([
             'job_id' => (string) $job_id,
             'status' => 'running',
-            'message' => 'Đang đồng bộ dữ liệu voucher từ Got It...',
-            'started_at' => current_time('mysql'),
+            'message' => sprintf('Đang đồng bộ dữ liệu voucher từ Got It (trang %d)...', $start_page),
+            'started_at' => !empty($state['started_at']) ? (string) $state['started_at'] : current_time('mysql'),
             'finished_at' => '',
             'gotit_category_id' => (int) $gotit_category_id,
             'requested_by' => (int) $requested_by,
+            'current_page' => $start_page,
+            'category_queue' => $category_queue,
+            'category_index' => $category_index,
         ]);
+
+        wp_suspend_cache_invalidation(true);
+        wp_defer_term_counting(true);
+        wp_defer_comment_counting(true);
 
         $result = game_bsc_sync_gotit_products_to_vouchers([
-            'source' => 'manual-admin-async',
+            'source' => $sync_source,
             'gotit_category_id' => (int) $gotit_category_id,
+            'start_page' => $start_page,
+            'pages_per_run' => (int) $runtime['pages_per_run'],
+            'page_size' => (int) $runtime['page_size'],
+            'lightweight_mode' => true,
         ]);
 
+        wp_defer_comment_counting(false);
+        wp_defer_term_counting(false);
+        wp_suspend_cache_invalidation(false);
+
         if (!empty($result['success'])) {
-            game_bsc_gotit_async_sync_update_state([
-                'status' => 'done',
-                'message' => 'Sync hoàn tất.',
-                'finished_at' => current_time('mysql'),
+            $created_total = (int) ($state['created'] ?? 0) + (int) ($result['created'] ?? 0);
+            $updated_total = (int) ($state['updated'] ?? 0) + (int) ($result['updated'] ?? 0);
+            $skipped_total = (int) ($state['skipped'] ?? 0) + (int) ($result['skipped'] ?? 0);
+            $products_total = (int) ($state['products_count'] ?? 0) + (int) ($result['products_count'] ?? 0);
+            $detail_total = (int) ($state['detail_calls'] ?? 0) + (int) ($result['detail_calls'] ?? 0);
+            $errors_total = (int) ($state['errors_count'] ?? 0) + (is_array($result['errors'] ?? null) ? count($result['errors']) : 0);
+            $pages_total = max((int) ($state['total_pages'] ?? 0), (int) ($result['total_pages'] ?? 0));
+            $pages_processed_total = (int) ($state['pages_processed'] ?? 0) + (int) ($result['pages_processed'] ?? 0);
+
+            $next_payload = [
                 'filter_category' => (string) ($result['filter_category'] ?? ''),
-                'created' => (int) ($result['created'] ?? 0),
-                'updated' => (int) ($result['updated'] ?? 0),
-                'skipped' => (int) ($result['skipped'] ?? 0),
-                'products_count' => (int) ($result['products_count'] ?? 0),
-                'detail_calls' => (int) ($result['detail_calls'] ?? 0),
-                'errors_count' => is_array($result['errors'] ?? null) ? count($result['errors']) : 0,
+                'created' => $created_total,
+                'updated' => $updated_total,
+                'skipped' => $skipped_total,
+                'products_count' => $products_total,
+                'detail_calls' => $detail_total,
+                'errors_count' => $errors_total,
+                'pages_processed' => $pages_processed_total,
+                'current_page' => (int) ($result['current_page'] ?? $start_page),
+                'total_pages' => $pages_total,
                 'last_error' => '',
-            ]);
+            ];
+
+            if (!empty($result['is_complete'])) {
+                $next_category_index = $category_index + 1;
+                $has_next_category = !empty($category_queue) && $next_category_index < count($category_queue);
+
+                if ($has_next_category) {
+                    $next_category_id = (int) $category_queue[$next_category_index];
+
+                    game_bsc_gotit_async_sync_update_state(array_merge($next_payload, [
+                        'status' => 'running',
+                        'message' => sprintf(
+                            'Hoàn tất danh mục hiện tại, chuyển sang danh mục %d/%d...',
+                            $next_category_index + 1,
+                            count($category_queue)
+                        ),
+                        'gotit_category_id' => $next_category_id,
+                        'category_index' => $next_category_index,
+                        'current_page' => 1,
+                        'total_pages' => 0,
+                        'finished_at' => '',
+                    ]));
+
+                    game_bsc_schedule_gotit_async_worker((string) $job_id, $next_category_id, (int) $requested_by, 1, (int) $runtime['worker_delay_seconds'], false);
+                } else {
+                    game_bsc_clear_gotit_async_worker_queue();
+                    game_bsc_gotit_async_sync_update_state(array_merge($next_payload, [
+                        'status' => 'done',
+                        'message' => 'Sync hoàn tất.',
+                        'finished_at' => current_time('mysql'),
+                        'cancel_requested' => 0,
+                        'category_queue' => [],
+                        'category_index' => 0,
+                    ]));
+                }
+            } else {
+                $next_page = max(1, (int) ($result['next_page'] ?? ($start_page + 1)));
+                $latest_state = game_bsc_gotit_async_sync_get_state();
+                if (!empty($latest_state['cancel_requested'])) {
+                    game_bsc_clear_gotit_async_worker_queue();
+                    game_bsc_gotit_async_sync_update_state(array_merge($next_payload, [
+                        'status' => 'stopped',
+                        'message' => 'Đã dừng đồng bộ theo yêu cầu.',
+                        'finished_at' => current_time('mysql'),
+                        'cancel_requested' => 0,
+                        'category_queue' => [],
+                        'category_index' => 0,
+                    ]));
+                } else {
+                    game_bsc_gotit_async_sync_update_state(array_merge($next_payload, [
+                        'status' => 'running',
+                        'message' => sprintf(
+                            'Đang đồng bộ dữ liệu voucher từ Got It (trang %d/%d)...',
+                            $next_page,
+                            max(1, $pages_total)
+                        ),
+                        'current_page' => $next_page,
+                        'finished_at' => '',
+                        'category_queue' => $category_queue,
+                        'category_index' => $category_index,
+                    ]));
+                    game_bsc_schedule_gotit_async_worker((string) $job_id, (int) $gotit_category_id, (int) $requested_by, $next_page, (int) $runtime['worker_delay_seconds'], false);
+                }
+            }
         } else {
+            game_bsc_clear_gotit_async_worker_queue();
             game_bsc_gotit_async_sync_update_state([
                 'status' => 'error',
                 'message' => (string) ($result['message'] ?? 'Sync thất bại.'),
                 'finished_at' => current_time('mysql'),
                 'last_error' => (string) ($result['message'] ?? 'Sync failed'),
+                'cancel_requested' => 0,
+                'category_queue' => [],
+                'category_index' => 0,
             ]);
         }
     } catch (Throwable $e) {
+        game_bsc_clear_gotit_async_worker_queue();
         game_bsc_gotit_async_sync_update_state([
             'status' => 'error',
             'message' => 'Sync lỗi: ' . $e->getMessage(),
             'finished_at' => current_time('mysql'),
             'last_error' => (string) $e->getMessage(),
+            'cancel_requested' => 0,
+            'category_queue' => [],
+            'category_index' => 0,
         ]);
         error_log('[GotIt Async Sync] ' . $e->getMessage());
     } finally {
         delete_transient($lock_key);
+        wp_defer_comment_counting(false);
+        wp_defer_term_counting(false);
+        wp_suspend_cache_invalidation(false);
     }
 }
-add_action('game_bsc_gotit_async_sync_event', 'game_bsc_run_gotit_async_sync_event', 10, 3);
+add_action('game_bsc_gotit_async_sync_event', 'game_bsc_run_gotit_async_sync_event', 10, 4);
 
 // ===== SYNC DANH MỤC TỪ GOT IT =====
 
@@ -2059,7 +1558,6 @@ function game_bsc_ajax_gotit_debug_raw() {
         'hint' => 'So sánh product_list_keys vs product_detail_keys để thấy detail có thêm field gì (categoryId, etc)',
     ]);
 }
-add_action('wp_ajax_game_bsc_gotit_debug_raw', 'game_bsc_ajax_gotit_debug_raw');
 
 // ===== NÚT SYNC THỦ CÔNG TRÊN TRANG DANH SÁCH VOUCHER =====
 
@@ -2119,11 +1617,18 @@ function game_bsc_gotit_voucher_list_sync_button() {
                 'Sync danh mục' +
                 '</button>'
             );
+            var $btnStop = $(
+                '<button type="button" id="game-bsc-gotit-stop-btn" class="button" style="margin-left:6px;" disabled>' +
+                '<span class="dashicons dashicons-no-alt" style="vertical-align:middle;margin-right:4px;"></span>' +
+                'Dừng sync' +
+                '</button>'
+            );
             var $status = $('<span id="game-bsc-gotit-sync-status" style="margin-left:10px;font-style:italic;"></span>');
 
             $('.wrap .page-title-action').first()
                 .after($status)
                 .after($btnCat)
+                .after($btnStop)
                 .after($btnVoucher)
                 .after($select);
 
@@ -2131,12 +1636,136 @@ function game_bsc_gotit_voucher_list_sync_button() {
                 [$btnVoucher, $btnCat, $select].forEach(function($el) {
                     $el.prop('disabled', loading);
                 });
+                if (!loading) {
+                    $btnStop.prop('disabled', true);
+                }
                 loading
                     ? $btnVoucher.find('.dashicons').addClass('spin')
                     : $btnVoucher.find('.dashicons').removeClass('spin');
                 loading
                     ? $btnCat.find('.dashicons').addClass('spin')
                     : $btnCat.find('.dashicons').removeClass('spin');
+            }
+
+            var syncPollTimer = null;
+            var syncPollEnabled = false;
+            var syncPollInFlight = false;
+            var syncPollDelayMs = 6000;
+            var currentSyncLabel = 'tất cả danh mục';
+
+            function stopSyncPoll() {
+                syncPollEnabled = false;
+                syncPollInFlight = false;
+                if (syncPollTimer) {
+                    clearTimeout(syncPollTimer);
+                    syncPollTimer = null;
+                }
+            }
+
+            function queueNextSyncPoll(delayMs) {
+                if (!syncPollEnabled) {
+                    return;
+                }
+                if (syncPollTimer) {
+                    clearTimeout(syncPollTimer);
+                }
+
+                var adjustedDelay = delayMs;
+                if (document.hidden) {
+                    adjustedDelay = Math.max(delayMs, 15000);
+                }
+
+                syncPollTimer = setTimeout(function() {
+                    pollSyncStatus();
+                }, adjustedDelay);
+            }
+
+            function startSyncPoll(initialDelayMs) {
+                syncPollEnabled = true;
+                queueNextSyncPoll(Math.max(500, initialDelayMs || 1000));
+            }
+
+            function updateStopButtonByStatus(st) {
+                var status = (st && st.status) ? st.status : '';
+                var canStop = (status === 'queued' || status === 'running' || status === 'stopping');
+                var isStopping = (status === 'stopping');
+                $btnStop.prop('disabled', !canStop || isStopping);
+            }
+
+            function pollSyncStatus() {
+                if (!syncPollEnabled || syncPollInFlight) {
+                    return;
+                }
+
+                syncPollInFlight = true;
+                $.post(ajaxurl, {
+                    action: 'game_bsc_gotit_sync_vouchers_async_status',
+                    nonce: nonce,
+                }, function(statusRes) {
+                    if (!statusRes.success || !statusRes.data || !statusRes.data.status) {
+                        syncPollDelayMs = 12000;
+                        return;
+                    }
+
+                    var st = statusRes.data.status;
+                    updateStopButtonByStatus(st);
+
+                    if (st.status === 'queued') {
+                        syncPollDelayMs = 5000;
+                        $status.css('color', '').text('⏳ Đang chờ worker chạy sync...');
+                        return;
+                    }
+
+                    if (st.status === 'running') {
+                        syncPollDelayMs = 7000;
+                        var pageText = '';
+                        if ((parseInt(st.current_page, 10) || 0) > 0 && (parseInt(st.total_pages, 10) || 0) > 0) {
+                            pageText = ' (trang ' + st.current_page + '/' + st.total_pages + ')';
+                        }
+                        $status.css('color', '').text('🔄 Đang đồng bộ dữ liệu từ Got It' + pageText + '...');
+                        return;
+                    }
+
+                    if (st.status === 'stopping') {
+                        syncPollDelayMs = 4000;
+                        $status.css('color', '#b26a00').text('🛑 Đang dừng đồng bộ, vui lòng chờ batch hiện tại hoàn tất...');
+                        return;
+                    }
+
+                    if (st.status === 'stopped') {
+                        stopSyncPoll();
+                        setLoading(false);
+                        $status.css('color', '#b26a00').text('🛑 Đồng bộ đã dừng theo yêu cầu.');
+                        return;
+                    }
+
+                    if (st.status === 'done') {
+                        stopSyncPoll();
+                        setLoading(false);
+                        $status.css('color', 'green').text(
+                            '✅ Sync xong [' + (st.filter_category || currentSyncLabel) + ']' +
+                            ' — Tạo mới: ' + (st.created || 0) +
+                            ', Cập nhật: ' + (st.updated || 0) +
+                            ', Bỏ qua: ' + (st.skipped || 0) +
+                            ' (tổng ' + (st.products_count || 0) + ' sản phẩm)'
+                        );
+                        setTimeout(function() { location.reload(); }, 1800);
+                        return;
+                    }
+
+                    if (st.status === 'error') {
+                        stopSyncPoll();
+                        setLoading(false);
+                        $status.css('color', 'red').text('❌ ' + (st.last_error || st.message || 'Sync thất bại.'));
+                    }
+                }).fail(function() {
+                    syncPollDelayMs = 12000;
+                }).always(function() {
+                    syncPollInFlight = false;
+                    if (syncPollEnabled) {
+                        queueNextSyncPoll(syncPollDelayMs);
+                    }
+                });
             }
 
             // === Sync voucher (có thể lọc theo danh mục) ===
@@ -2146,59 +1775,10 @@ function game_bsc_gotit_voucher_list_sync_button() {
                 var catText = catId > 0
                     ? ($select.find('option:selected').text())
                     : 'tất cả danh mục';
+                currentSyncLabel = catText;
 
                 setLoading(true);
                 $status.css('color', '').text('Đang xếp hàng sync voucher (' + catText + ')...');
-
-                var syncPollTimer = null;
-                function stopSyncPoll() {
-                    if (syncPollTimer) {
-                        clearInterval(syncPollTimer);
-                        syncPollTimer = null;
-                    }
-                }
-
-                function pollSyncStatus() {
-                    $.post(ajaxurl, {
-                        action: 'game_bsc_gotit_sync_vouchers_async_status',
-                        nonce: nonce,
-                    }, function(statusRes) {
-                        if (!statusRes.success || !statusRes.data || !statusRes.data.status) {
-                            return;
-                        }
-
-                        var st = statusRes.data.status;
-                        if (st.status === 'queued') {
-                            $status.css('color', '').text('⏳ Đang chờ worker chạy sync...');
-                            return;
-                        }
-
-                        if (st.status === 'running') {
-                            $status.css('color', '').text('🔄 Đang đồng bộ dữ liệu từ Got It...');
-                            return;
-                        }
-
-                        if (st.status === 'done') {
-                            stopSyncPoll();
-                            setLoading(false);
-                            $status.css('color', 'green').text(
-                                '✅ Sync xong [' + (st.filter_category || catText) + ']' +
-                                ' — Tạo mới: ' + (st.created || 0) +
-                                ', Cập nhật: ' + (st.updated || 0) +
-                                ', Bỏ qua: ' + (st.skipped || 0) +
-                                ' (tổng ' + (st.products_count || 0) + ' sản phẩm)'
-                            );
-                            setTimeout(function() { location.reload(); }, 1800);
-                            return;
-                        }
-
-                        if (st.status === 'error') {
-                            stopSyncPoll();
-                            setLoading(false);
-                            $status.css('color', 'red').text('❌ ' + (st.last_error || st.message || 'Sync thất bại.'));
-                        }
-                    });
-                }
 
                 $.post(ajaxurl, {
                     action: 'game_bsc_gotit_sync_vouchers_async_start',
@@ -2213,12 +1793,40 @@ function game_bsc_gotit_voucher_list_sync_button() {
                     }
 
                     $status.css('color', '').text('⏳ Sync đã được đưa vào hàng đợi. Đang theo dõi...');
-                    pollSyncStatus();
+                    updateStopButtonByStatus({ status: 'queued' });
                     stopSyncPoll();
-                    syncPollTimer = setInterval(pollSyncStatus, 3000);
+                    syncPollDelayMs = 2000;
+                    startSyncPoll(200);
                 }).fail(function() {
                     $status.css('color', 'red').text('❌ Lỗi kết nối khi bắt đầu sync voucher.');
                     setLoading(false);
+                });
+            });
+
+            $btnStop.on('click', function() {
+                if ($btnStop.prop('disabled')) return;
+
+                $btnStop.prop('disabled', true);
+                $status.css('color', '#b26a00').text('🛑 Đang gửi yêu cầu dừng đồng bộ...');
+
+                $.post(ajaxurl, {
+                    action: 'game_bsc_gotit_sync_vouchers_async_stop',
+                    nonce: nonce,
+                }, function(res) {
+                    if (!res.success) {
+                        var msg = (res.data && res.data.message) ? res.data.message : 'Không thể dừng sync lúc này.';
+                        $status.css('color', 'red').text('❌ ' + msg);
+                        return;
+                    }
+
+                    $status.css('color', '#b26a00').text('🛑 Đã gửi yêu cầu dừng. Đang chờ worker xác nhận...');
+                    if (!syncPollEnabled) {
+                        startSyncPoll(300);
+                    } else {
+                        queueNextSyncPoll(300);
+                    }
+                }).fail(function() {
+                    $status.css('color', 'red').text('❌ Lỗi kết nối khi gửi yêu cầu dừng.');
                 });
             });
 
@@ -2257,19 +1865,70 @@ function game_bsc_gotit_voucher_list_sync_button() {
 }
 add_action('admin_footer-edit.php', 'game_bsc_gotit_voucher_list_sync_button');
 
+function game_bsc_add_gotit_voucher_sync_cron_schedules($schedules) {
+    $schedules['game_bsc_every_14_days'] = [
+        'interval' => 14 * DAY_IN_SECONDS,
+        'display' => __('Mỗi 14 ngày', WG_GAME_PLUGIN_TEXTDOMAIN),
+    ];
+
+    return $schedules;
+}
+add_filter('cron_schedules', 'game_bsc_add_gotit_voucher_sync_cron_schedules');
+
+function game_bsc_get_next_gotit_voucher_sync_timestamp() {
+    $timezone = wp_timezone();
+    $now = new DateTimeImmutable('now', $timezone);
+    $next = $now->modify('this saturday')->setTime(2, 0, 0);
+
+    if ($next <= $now) {
+        $next = $next->modify('+7 days');
+    }
+
+    return $next->getTimestamp();
+}
+
 function game_bsc_schedule_gotit_voucher_sync_event() {
-    if (wp_next_scheduled('game_bsc_gotit_daily_sync_event')) {
+    $hook = 'game_bsc_gotit_daily_sync_event';
+    $recurrence = 'game_bsc_every_14_days';
+
+    if (function_exists('wp_get_scheduled_event')) {
+        $scheduled_event = wp_get_scheduled_event($hook);
+        if (
+            $scheduled_event
+            && !empty($scheduled_event->schedule)
+            && (string) $scheduled_event->schedule !== $recurrence
+        ) {
+            wp_clear_scheduled_hook($hook);
+        }
+    }
+
+    if (wp_next_scheduled($hook)) {
         return;
     }
 
-    $next = strtotime('tomorrow 02:00:00');
-    if ($next <= time()) {
-        $next = time() + HOUR_IN_SECONDS;
+    $next = game_bsc_get_next_gotit_voucher_sync_timestamp();
+    wp_schedule_event($next, $recurrence, $hook);
+}
+
+function game_bsc_maybe_schedule_gotit_voucher_sync_event() {
+    if (is_admin() && !wp_doing_cron()) {
+        return;
     }
 
-    wp_schedule_event($next, 'daily', 'game_bsc_gotit_daily_sync_event');
+    if (get_transient('game_bsc_gotit_biweekly_schedule_checked')) {
+        return;
+    }
+
+    set_transient('game_bsc_gotit_biweekly_schedule_checked', 1, 12 * HOUR_IN_SECONDS);
+    game_bsc_schedule_gotit_voucher_sync_event();
 }
-add_action('init', 'game_bsc_schedule_gotit_voucher_sync_event', 30);
+
+function game_bsc_clear_gotit_voucher_sync_event() {
+    wp_clear_scheduled_hook('game_bsc_gotit_daily_sync_event');
+}
+
+register_activation_hook(GAME_BSC_PLUGIN_FILE, 'game_bsc_schedule_gotit_voucher_sync_event');
+register_deactivation_hook(GAME_BSC_PLUGIN_FILE, 'game_bsc_clear_gotit_voucher_sync_event');
 
 function game_bsc_run_gotit_daily_sync_event() {
     $client = game_bsc_gotit_client();
@@ -2277,12 +1936,24 @@ function game_bsc_run_gotit_daily_sync_event() {
         return;
     }
 
-    $result = game_bsc_sync_gotit_products_to_vouchers([
+    $category_ids = game_bsc_gotit_collect_category_ids_for_sync($client);
+    $start_args = [
         'source' => 'daily-cron',
-    ]);
+        'requested_by' => 0,
+    ];
 
-    if (empty($result['success'])) {
-        error_log('[GotIt Sync] Daily sync failed: ' . wp_json_encode($result));
+    if (!empty($category_ids)) {
+        $start_args['category_queue'] = $category_ids;
+        $start_args['category_index'] = 0;
+        $start_args['gotit_category_id'] = (int) $category_ids[0];
+    }
+
+    $started = game_bsc_start_gotit_sync_job($start_args);
+
+    if (empty($started['success'])) {
+        error_log('[GotIt Sync] Daily queue failed: cannot start async job');
+    } elseif (!empty($started['already_running'])) {
+        error_log('[GotIt Sync] Daily queue skipped: another sync is running');
     }
 }
 add_action('game_bsc_gotit_daily_sync_event', 'game_bsc_run_gotit_daily_sync_event');
@@ -2373,7 +2044,6 @@ function game_bsc_ajax_gotit_get_products() {
         'request_filters' => $extra_filters,
     ]);
 }
-add_action('wp_ajax_game_bsc_gotit_get_products', 'game_bsc_ajax_gotit_get_products');
 
 function game_bsc_ajax_gotit_ping() {
     game_bsc_gotit_test_guard();
@@ -2400,7 +2070,6 @@ function game_bsc_ajax_gotit_ping() {
         'raw' => $result['raw'] ?? '',
     ]);
 }
-add_action('wp_ajax_game_bsc_gotit_ping', 'game_bsc_ajax_gotit_ping');
 
 function game_bsc_ajax_gotit_test_issue() {
     game_bsc_gotit_test_guard();
@@ -2490,7 +2159,6 @@ function game_bsc_ajax_gotit_test_issue() {
         'db_saved' => $txn_save,
     ]);
 }
-add_action('wp_ajax_game_bsc_gotit_test_issue', 'game_bsc_ajax_gotit_test_issue');
 
 function game_bsc_ajax_gotit_test_status() {
     game_bsc_gotit_test_guard();
@@ -2531,7 +2199,6 @@ function game_bsc_ajax_gotit_test_status() {
         'db_record' => $db_row,
     ]);
 }
-add_action('wp_ajax_game_bsc_gotit_test_status', 'game_bsc_ajax_gotit_test_status');
 
 function game_bsc_ajax_gotit_retry_txn() {
     game_bsc_gotit_test_guard();
@@ -2552,4 +2219,3 @@ function game_bsc_ajax_gotit_retry_txn() {
 
     wp_send_json_error($result, 400);
 }
-add_action('wp_ajax_game_bsc_gotit_retry_txn', 'game_bsc_ajax_gotit_retry_txn');

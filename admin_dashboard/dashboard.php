@@ -69,10 +69,6 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
               class="tab-item-nav ">
                Danh sách quà đã đổi
            </a>
-           <a href="<?php echo esc_url(add_query_arg(['page' => 'dashboard-layout', 'sub' => 'gotit-test'])); ?>"
-              class="tab-item-nav">
-               Got It Test
-           </a>
        </div>
     </div>
 

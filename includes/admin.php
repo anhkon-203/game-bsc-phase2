@@ -75,33 +75,8 @@ function game_bsc_enqueue_admin_media_scripts($hook) {
         return;
     }
 
-    // Default: disable manual picker because THIRD_PARTY voucher data is synced automatically.
-    $manual_picker_enabled = get_option('game_bsc_gotit_manual_picker_enabled', '0') === '1';
-    if (!$manual_picker_enabled) {
-        return;
-    }
-
-    wp_enqueue_script(
-        'game-bsc-gotit-voucher-fields',
-        GAME_BSC_PLUGIN_URL . 'admin_dashboard/assets/js/gotit-voucher-fields.js',
-        ['jquery'],
-        WG_GAME_PLUGIN_DB_VERSION,
-        true
-    );
-
-    wp_localize_script('game-bsc-gotit-voucher-fields', 'gameBscGotItVoucherFields', [
-        'ajaxUrl' => admin_url('admin-ajax.php'),
-        'nonce' => wp_create_nonce('game_bsc_gotit_test_nonce'),
-        'action' => 'game_bsc_gotit_get_products',
-        'messages' => [
-            'loading' => 'Đang tải danh sách sản phẩm từ Got It...',
-            'loadFailed' => 'Không tải được danh sách sản phẩm. Bạn vẫn có thể nhập tay.',
-            'selectProduct' => '-- Chọn sản phẩm Got It --',
-            'selectPrice' => '-- Chọn mệnh giá Got It --',
-            'pickerTitle' => 'Chọn nhanh từ API Got It',
-            'pickerHint' => 'Chọn sản phẩm và mệnh giá, hệ thống sẽ tự điền vào 2 ô bên dưới.',
-        ],
-    ]);
+    // Disable legacy test/manual picker flow on voucher editor UI.
+    return;
 }
 add_action('admin_enqueue_scripts', 'game_bsc_enqueue_admin_media_scripts');
 
