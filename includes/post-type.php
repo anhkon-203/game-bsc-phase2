@@ -38,14 +38,15 @@ function game_bsc_register_post_type() {
 
     // Post type voucher
     $labels = array(
-        'name' => __('Vouchers', WG_GAME_PLUGIN_TEXTDOMAIN),
-        'singular_name' => __('Vouchers', WG_GAME_PLUGIN_TEXTDOMAIN),
+        'name' => __('Voucher', WG_GAME_PLUGIN_TEXTDOMAIN),
+        'singular_name' => __('Voucher', WG_GAME_PLUGIN_TEXTDOMAIN),
         'add_new_item' => __('Thêm voucher mới', WG_GAME_PLUGIN_TEXTDOMAIN),
         'edit_item' => __('Chỉnh sửa voucher', WG_GAME_PLUGIN_TEXTDOMAIN),
         'new_item' => __('Voucher mới', WG_GAME_PLUGIN_TEXTDOMAIN),
         'view_item' => __('Xem voucher', WG_GAME_PLUGIN_TEXTDOMAIN),
         'search_items' => __('Tìm voucher', WG_GAME_PLUGIN_TEXTDOMAIN),
         'not_found' => __('Không tìm thấy voucher', WG_GAME_PLUGIN_TEXTDOMAIN),
+        'menu_name' => __('Voucher', WG_GAME_PLUGIN_TEXTDOMAIN),
     );
 
     $args = array(

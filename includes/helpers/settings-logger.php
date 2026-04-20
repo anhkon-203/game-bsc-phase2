@@ -270,6 +270,13 @@ function game_bsc_format_setting_key($key) {
 		'game_bsc_tasks' => 'Nhiệm vụ',
 		'game_bsc_rules' => 'Thể lệ',
 		'game_bsc_rewards_descriptions' => 'Cơ chế đổi quà',
+		'game_bsc_post_game_badges' => 'Huy hiệu',
+		'game_bsc_post_game_question' => 'Câu hỏi',
+		'game_bsc_post_game_vouchers' => 'Voucher',
+		'game_bsc_gotit_sync_categories' => 'Got It: Đồng bộ danh mục',
+		'game_bsc_gotit_sync_vouchers' => 'Got It: Đồng bộ voucher',
+		'game_bsc_voucher_excel_export' => 'Voucher: Xuất Excel/CSV',
+		'game_bsc_voucher_excel_import' => 'Voucher: Nhập Excel/CSV',
 	];
 	
 	if (isset($mapping[$key])) {
@@ -801,6 +808,13 @@ function game_bsc_get_setting_label($setting_key)
 		'game_bsc_tasks' => 'Nhiệm vụ',
 		'game_bsc_rules' => 'Thể lệ',
 		'game_bsc_rewards_descriptions' => 'Cơ chế đổi quà',
+		'game_bsc_post_game_badges' => 'Huy hiệu',
+		'game_bsc_post_game_question' => 'Câu hỏi',
+		'game_bsc_post_game_vouchers' => 'Voucher',
+		'game_bsc_gotit_sync_categories' => 'Got It: Đồng bộ danh mục',
+		'game_bsc_gotit_sync_vouchers' => 'Got It: Đồng bộ voucher',
+		'game_bsc_voucher_excel_export' => 'Voucher: Xuất Excel/CSV',
+		'game_bsc_voucher_excel_import' => 'Voucher: Nhập Excel/CSV',
 	];
 	
 	if (isset($labels[$setting_key])) {
@@ -909,3 +923,197 @@ function game_bsc_get_action_badge_style($action)
 	}
 	return 'background: #6c757d; color: white;';
 }
+
+/**
+ * Danh sách post type cần ghi nhật ký chỉnh sửa.
+ */
+function game_bsc_get_trackable_post_types() {
+	return [
+		'game_badges',
+		'game_question',
+		'game_vouchers',
+	];
+}
+
+/**
+ * Kiểm tra voucher có phải THIRD_PARTY hay không.
+ */
+function game_bsc_is_third_party_voucher($post_id) {
+	$voucher_type = (string) get_post_meta((int) $post_id, 'voucher_type', true);
+	if ($voucher_type === '' && function_exists('get_field')) {
+		$voucher_type = (string) get_field('voucher_type', (int) $post_id);
+	}
+
+	$normalized = strtoupper(trim($voucher_type));
+	return $normalized === 'THIRD_PARTY';
+}
+
+/**
+ * Quy đổi post type sang setting_key để tái sử dụng dashboard log hiện tại.
+ */
+function game_bsc_get_post_log_setting_key($post_type) {
+	$mapping = [
+		'game_badges' => 'game_bsc_post_game_badges',
+		'game_question' => 'game_bsc_post_game_question',
+		'game_vouchers' => 'game_bsc_post_game_vouchers',
+	];
+
+	return $mapping[$post_type] ?? '';
+}
+
+/**
+ * Bỏ qua log cho autosave/revision hoặc khi voucher đang được sync từ Got It.
+ */
+function game_bsc_should_skip_post_log($post_id, $post_type) {
+	if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+		return true;
+	}
+
+	if (wp_is_post_revision($post_id)) {
+		return true;
+	}
+
+	if ($post_type === 'game_vouchers') {
+		// Voucher THIRD_PARTY không log chỉnh sửa thủ công, chỉ log theo action GotIt/Excel.
+		if (game_bsc_is_third_party_voucher($post_id)) {
+			return true;
+		}
+
+		$state = get_option('game_bsc_gotit_async_sync_state', []);
+		$status = is_array($state) ? ($state['status'] ?? '') : '';
+		if (in_array($status, ['queued', 'running', 'stopping'], true)) {
+			return true;
+		}
+
+		$ajax_action = isset($_REQUEST['action']) ? sanitize_text_field((string) $_REQUEST['action']) : '';
+		if (strpos($ajax_action, 'game_bsc_gotit_sync_') === 0) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Ghi log khi chỉnh sửa thông tin core của post (tiêu đề/trạng thái).
+ */
+function game_bsc_log_trackable_post_update($post_id, $post_after, $post_before) {
+	if (!is_object($post_after) || !is_object($post_before)) {
+		return;
+	}
+
+	$post_type = $post_after->post_type ?? '';
+	if (!in_array($post_type, game_bsc_get_trackable_post_types(), true)) {
+		return;
+	}
+
+	if (game_bsc_should_skip_post_log((int) $post_id, $post_type)) {
+		return;
+	}
+
+	$old_value = [
+		'post_title' => (string) ($post_before->post_title ?? ''),
+		'post_status' => (string) ($post_before->post_status ?? ''),
+	];
+	$new_value = [
+		'post_title' => (string) ($post_after->post_title ?? ''),
+		'post_status' => (string) ($post_after->post_status ?? ''),
+	];
+
+	if ($old_value === $new_value) {
+		return;
+	}
+
+	$setting_key = game_bsc_get_post_log_setting_key($post_type);
+	if ($setting_key === '') {
+		return;
+	}
+
+	game_bsc_log_settings_change($setting_key, $old_value, $new_value, 'update');
+}
+add_action('post_updated', 'game_bsc_log_trackable_post_update', 20, 3);
+
+/**
+ * Chụp snapshot ACF trước khi save để so sánh sau save.
+ */
+function game_bsc_capture_acf_snapshot_before_save() {
+	if (!is_admin()) {
+		return;
+	}
+
+	$post_id = isset($_POST['post_ID']) ? absint($_POST['post_ID']) : 0;
+	if ($post_id <= 0) {
+		return;
+	}
+
+	$post_type = get_post_type($post_id);
+	if (!in_array($post_type, game_bsc_get_trackable_post_types(), true)) {
+		return;
+	}
+
+	if (game_bsc_should_skip_post_log($post_id, $post_type)) {
+		return;
+	}
+
+	if (!function_exists('get_fields')) {
+		return;
+	}
+
+	$old_fields = get_fields($post_id);
+	if (!is_array($old_fields)) {
+		$old_fields = [];
+	}
+
+	$GLOBALS['game_bsc_acf_log_snapshot'][$post_id] = $old_fields;
+}
+add_action('acf/validate_save_post', 'game_bsc_capture_acf_snapshot_before_save', 5);
+
+/**
+ * Ghi log khi dữ liệu ACF thay đổi trên Huy hiệu/Câu hỏi/Voucher.
+ */
+function game_bsc_log_acf_changes_after_save($post_id) {
+	$post_id = absint($post_id);
+	if ($post_id <= 0) {
+		return;
+	}
+
+	if (!isset($GLOBALS['game_bsc_acf_log_snapshot'][$post_id])) {
+		return;
+	}
+
+	$post_type = get_post_type($post_id);
+	if (!in_array($post_type, game_bsc_get_trackable_post_types(), true)) {
+		unset($GLOBALS['game_bsc_acf_log_snapshot'][$post_id]);
+		return;
+	}
+
+	if (game_bsc_should_skip_post_log($post_id, $post_type)) {
+		unset($GLOBALS['game_bsc_acf_log_snapshot'][$post_id]);
+		return;
+	}
+
+	if (!function_exists('get_fields')) {
+		unset($GLOBALS['game_bsc_acf_log_snapshot'][$post_id]);
+		return;
+	}
+
+	$old_fields = $GLOBALS['game_bsc_acf_log_snapshot'][$post_id];
+	$new_fields = get_fields($post_id);
+	if (!is_array($new_fields)) {
+		$new_fields = [];
+	}
+
+	unset($GLOBALS['game_bsc_acf_log_snapshot'][$post_id]);
+
+	if ($old_fields === $new_fields) {
+		return;
+	}
+
+	$setting_key = game_bsc_get_post_log_setting_key($post_type);
+	if ($setting_key === '') {
+		return;
+	}
+
+	game_bsc_log_settings_change($setting_key, ['acf' => $old_fields], ['acf' => $new_fields], 'update');
+}
+add_action('acf/save_post', 'game_bsc_log_acf_changes_after_save', 20);

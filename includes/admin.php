@@ -72,6 +72,23 @@ function dashboard_config(){
 add_action('admin_menu', 'game_bsc_admin_menu'); // admin pages
 
 /**
+ * Ẩn menu Test API trên sidebar bằng CSS,
+ * vẫn giữ page được đăng ký để truy cập trực tiếp qua URL.
+ */
+function game_bsc_hide_test_api_submenu_css() {
+    if (!current_user_can('admin_game') && !current_user_can('administrator')) {
+        return;
+    }
+
+    echo '<style>
+        #toplevel_page_game-bsc-main .wp-submenu a[href="admin.php?page=game-bsc-test-api"] {
+            display: none !important;
+        }
+    </style>';
+}
+add_action('admin_head', 'game_bsc_hide_test_api_submenu_css', 99);
+
+/**
  * Enqueue WordPress Media Library scripts for settings page
  */
 function game_bsc_enqueue_admin_media_scripts($hook) {

@@ -1193,6 +1193,21 @@ function game_bsc_ajax_gotit_sync_vouchers_async_start() {
         'requested_by' => get_current_user_id(),
     ]);
 
+    if (function_exists('game_bsc_log_settings_change')) {
+        game_bsc_log_settings_change(
+            'game_bsc_gotit_sync_vouchers',
+            [],
+            [
+                'source' => 'manual-admin-async',
+                'gotit_category_id' => (int) $gotit_category_id,
+                'requested_by' => (int) get_current_user_id(),
+                'status' => !empty($started['already_running']) ? 'already_running' : 'queued',
+                'triggered_at' => game_now(),
+            ],
+            'update'
+        );
+    }
+
     wp_send_json_success([
         'message' => !empty($started['already_running'])
             ? 'Đã có phiên sync đang chạy.'
@@ -1476,6 +1491,21 @@ function game_bsc_ajax_gotit_sync_categories() {
         }
     }
 
+    if (function_exists('game_bsc_log_settings_change')) {
+        game_bsc_log_settings_change(
+            'game_bsc_gotit_sync_categories',
+            [],
+            [
+                'created' => (int) $created,
+                'existing' => (int) $existing,
+                'total' => (int) count($map),
+                'requested_by' => (int) get_current_user_id(),
+                'triggered_at' => game_now(),
+            ],
+            'update'
+        );
+    }
+
     wp_send_json_success([
         'message'    => 'Sync danh mục hoàn tất.',
         'created'    => $created,
@@ -1608,29 +1638,34 @@ function game_bsc_gotit_voucher_list_sync_button() {
             var $btnVoucher = $(
                 '<button type="button" id="game-bsc-gotit-sync-btn" class="button button-primary" style="margin-left:6px;">' +
                 '<span class="dashicons dashicons-update" style="vertical-align:middle;margin-right:4px;"></span>' +
-                'Sync voucher' +
+                'Đồng bộ voucher' +
                 '</button>'
             );
             var $btnCat = $(
                 '<button type="button" id="game-bsc-gotit-sync-cat-btn" class="button" style="margin-left:6px;">' +
                 '<span class="dashicons dashicons-category" style="vertical-align:middle;margin-right:4px;"></span>' +
-                'Sync danh mục' +
+                'Đồng bộ danh mục' +
                 '</button>'
             );
             var $btnStop = $(
                 '<button type="button" id="game-bsc-gotit-stop-btn" class="button" style="margin-left:6px;" disabled>' +
                 '<span class="dashicons dashicons-no-alt" style="vertical-align:middle;margin-right:4px;"></span>' +
-                'Dừng sync' +
+                'Dừng đồng bộ' +
                 '</button>'
             );
             var $status = $('<span id="game-bsc-gotit-sync-status" style="margin-left:10px;font-style:italic;"></span>');
 
-            $('.wrap .page-title-action').first()
-                .after($status)
-                .after($btnCat)
-                .after($btnStop)
-                .after($btnVoucher)
-                .after($select);
+            var $toolbar = $('<div id="game-bsc-gotit-toolbar"></div>');
+            $toolbar.append($select, $btnVoucher, $btnStop, $btnCat, $status);
+
+            var $addNewBtn = $('.wrap .page-title-action').first();
+            if ($addNewBtn.length) {
+                $addNewBtn.after($toolbar);
+                // Đưa nút "Thêm voucher mới" xuống dưới khu vực đồng bộ.
+                $toolbar.after($addNewBtn);
+            } else {
+                $('.wrap h1.wp-heading-inline').first().after($toolbar);
+            }
 
             function setLoading(loading) {
                 [$btnVoucher, $btnCat, $select].forEach(function($el) {
@@ -1712,7 +1747,7 @@ function game_bsc_gotit_voucher_list_sync_button() {
 
                     if (st.status === 'queued') {
                         syncPollDelayMs = 5000;
-                        $status.css('color', '').text('⏳ Đang chờ worker chạy sync...');
+                        $status.css('color', '').text('⏳ Đang chờ tiến trình nền chạy đồng bộ...');
                         return;
                     }
 
@@ -1743,7 +1778,7 @@ function game_bsc_gotit_voucher_list_sync_button() {
                         stopSyncPoll();
                         setLoading(false);
                         $status.css('color', 'green').text(
-                            '✅ Sync xong [' + (st.filter_category || currentSyncLabel) + ']' +
+                            '✅ Đồng bộ hoàn tất [' + (st.filter_category || currentSyncLabel) + ']' +
                             ' — Tạo mới: ' + (st.created || 0) +
                             ', Cập nhật: ' + (st.updated || 0) +
                             ', Bỏ qua: ' + (st.skipped || 0) +
@@ -1756,7 +1791,7 @@ function game_bsc_gotit_voucher_list_sync_button() {
                     if (st.status === 'error') {
                         stopSyncPoll();
                         setLoading(false);
-                        $status.css('color', 'red').text('❌ ' + (st.last_error || st.message || 'Sync thất bại.'));
+                        $status.css('color', 'red').text('❌ ' + (st.last_error || st.message || 'Đồng bộ thất bại.'));
                     }
                 }).fail(function() {
                     syncPollDelayMs = 12000;
@@ -1778,7 +1813,7 @@ function game_bsc_gotit_voucher_list_sync_button() {
                 currentSyncLabel = catText;
 
                 setLoading(true);
-                $status.css('color', '').text('Đang xếp hàng sync voucher (' + catText + ')...');
+                $status.css('color', '').text('Đang xếp hàng đồng bộ voucher (' + catText + ')...');
 
                 $.post(ajaxurl, {
                     action: 'game_bsc_gotit_sync_vouchers_async_start',
@@ -1786,19 +1821,19 @@ function game_bsc_gotit_voucher_list_sync_button() {
                     gotit_category_id: catId,
                 }, function(res) {
                     if (!res.success) {
-                        var msg = (res.data && res.data.message) ? res.data.message : 'Không thể bắt đầu sync.';
+                        var msg = (res.data && res.data.message) ? res.data.message : 'Không thể bắt đầu đồng bộ.';
                         $status.css('color', 'red').text('❌ ' + msg);
                         setLoading(false);
                         return;
                     }
 
-                    $status.css('color', '').text('⏳ Sync đã được đưa vào hàng đợi. Đang theo dõi...');
+                    $status.css('color', '').text('⏳ Đồng bộ đã được đưa vào hàng đợi. Đang theo dõi...');
                     updateStopButtonByStatus({ status: 'queued' });
                     stopSyncPoll();
                     syncPollDelayMs = 2000;
                     startSyncPoll(200);
                 }).fail(function() {
-                    $status.css('color', 'red').text('❌ Lỗi kết nối khi bắt đầu sync voucher.');
+                    $status.css('color', 'red').text('❌ Lỗi kết nối khi bắt đầu đồng bộ voucher.');
                     setLoading(false);
                 });
             });
@@ -1814,7 +1849,7 @@ function game_bsc_gotit_voucher_list_sync_button() {
                     nonce: nonce,
                 }, function(res) {
                     if (!res.success) {
-                        var msg = (res.data && res.data.message) ? res.data.message : 'Không thể dừng sync lúc này.';
+                        var msg = (res.data && res.data.message) ? res.data.message : 'Không thể dừng đồng bộ lúc này.';
                         $status.css('color', 'red').text('❌ ' + msg);
                         return;
                     }
@@ -1834,7 +1869,7 @@ function game_bsc_gotit_voucher_list_sync_button() {
             $btnCat.on('click', function() {
                 if ($btnCat.prop('disabled')) return;
                 setLoading(true);
-                $status.css('color', '').text('Đang sync danh mục từ Got It...');
+                $status.css('color', '').text('Đang đồng bộ danh mục từ Got It...');
 
                 $.post(ajaxurl, { action: 'game_bsc_gotit_sync_categories', nonce: nonce }, function(res) {
                     if (res.success) {
@@ -1847,11 +1882,11 @@ function game_bsc_gotit_voucher_list_sync_button() {
                         // Reload để dropdown cập nhật danh mục mới
                         setTimeout(function() { location.reload(); }, 2000);
                     } else {
-                        var msg = (res.data && res.data.message) ? res.data.message : 'Sync danh mục thất bại.';
+                        var msg = (res.data && res.data.message) ? res.data.message : 'Đồng bộ danh mục thất bại.';
                         $status.css('color', 'red').text('❌ ' + msg);
                     }
                 }).fail(function() {
-                    $status.css('color', 'red').text('❌ Lỗi kết nối khi sync danh mục.');
+                    $status.css('color', 'red').text('❌ Lỗi kết nối khi đồng bộ danh mục.');
                 }).always(function() { setLoading(false); });
             });
         });
@@ -1860,6 +1895,30 @@ function game_bsc_gotit_voucher_list_sync_button() {
     <style>
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .dashicons.spin { display:inline-block; animation: spin 1s linear infinite; }
+        #game-bsc-gotit-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin: 10px 0 0;
+            padding: 10px;
+            border: 1px solid #dcdcde;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+        }
+        #game-bsc-gotit-cat-select {
+            margin-left: 0 !important;
+            min-width: 220px;
+            height: 32px;
+        }
+        #game-bsc-gotit-sync-status {
+            margin-left: 4px !important;
+            min-height: 20px;
+        }
+        .wrap .page-title-action {
+            margin-top: 10px;
+        }
     </style>
     <?php
 }

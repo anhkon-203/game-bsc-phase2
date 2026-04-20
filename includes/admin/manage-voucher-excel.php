@@ -198,6 +198,220 @@ if (!function_exists('game_bsc_voucher_excel_is_third_party_type')) {
     }
 }
 
+if (!function_exists('game_bsc_voucher_excel_normalize_snapshot')) {
+    function game_bsc_voucher_excel_normalize_snapshot($value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = preg_replace('/^\xEF\xBB\xBF/', '', $value);
+        $value = trim((string) $value, " \t\n\r\0\x0B'\"");
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $value)) {
+            $value .= ':00';
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/', $value)) {
+            $value = str_replace('T', ' ', $value);
+            $value = preg_replace('/(?:\.\d+)?Z$/', '', $value);
+        }
+
+        if (preg_match('/^\d+(?:\.\d+)?$/', $value)) {
+            $excel_serial = (float) $value;
+            if ($excel_serial > 0) {
+                $unix_time = (int) round(($excel_serial - 25569) * DAY_IN_SECONDS);
+                if ($unix_time > 0) {
+                    return gmdate('Y-m-d H:i:s', $unix_time);
+                }
+            }
+        }
+
+        return $value;
+    }
+}
+
+if (!function_exists('game_bsc_voucher_excel_snapshots_conflict')) {
+    function game_bsc_voucher_excel_snapshots_conflict($raw_snapshot, $db_snapshot) {
+        $original_raw_snapshot = trim((string) $raw_snapshot);
+        $raw_snapshot = game_bsc_voucher_excel_normalize_snapshot($raw_snapshot);
+        $db_snapshot = game_bsc_voucher_excel_normalize_snapshot($db_snapshot);
+
+        if ($raw_snapshot === '' || $db_snapshot === '') {
+            return false;
+        }
+
+        if ($raw_snapshot === $db_snapshot) {
+            return false;
+        }
+
+        $raw_time = strtotime($raw_snapshot);
+        $db_time = strtotime($db_snapshot);
+        if ($raw_time !== false && $db_time !== false && $raw_time === $db_time) {
+            return false;
+        }
+
+        $raw_has_seconds = preg_match('/\d{2}:\d{2}:\d{2}$/', $original_raw_snapshot) === 1
+            || preg_match('/T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/', $original_raw_snapshot) === 1;
+
+        if (!$raw_has_seconds && $raw_time !== false && $db_time !== false) {
+            if (gmdate('Y-m-d H:i', $raw_time) === gmdate('Y-m-d H:i', $db_time)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
+
+if (!function_exists('game_bsc_voucher_excel_read_csv_rows')) {
+    function game_bsc_voucher_excel_read_csv_rows($file_path, &$delimiter = ',', &$sep_line_number = null) {
+        if (!is_readable($file_path)) {
+            return [];
+        }
+
+        $raw_content = @file_get_contents($file_path);
+        if ($raw_content === false || $raw_content === '') {
+            return [];
+        }
+
+        $encoding = null;
+        if (substr($raw_content, 0, 3) === "\xEF\xBB\xBF") {
+            $encoding = 'UTF-8';
+            $raw_content = substr($raw_content, 3);
+        } elseif (substr($raw_content, 0, 2) === "\xFF\xFE") {
+            $encoding = 'UTF-16LE';
+            $raw_content = substr($raw_content, 2);
+        } elseif (substr($raw_content, 0, 2) === "\xFE\xFF") {
+            $encoding = 'UTF-16BE';
+            $raw_content = substr($raw_content, 2);
+        }
+
+        if ($encoding === null) {
+            $sample = substr($raw_content, 0, 65536);
+            if (function_exists('mb_detect_encoding')) {
+                $encoding = mb_detect_encoding(
+                    $sample,
+                    ['UTF-8', 'UTF-16LE', 'UTF-16BE', 'Windows-1252', 'ISO-8859-1', 'ASCII'],
+                    true
+                );
+            }
+            if ($encoding === false || $encoding === null) {
+                $encoding = 'Windows-1252';
+            }
+        }
+
+        if (strtoupper((string) $encoding) !== 'UTF-8') {
+            $converted = @iconv((string) $encoding, 'UTF-8//IGNORE', $raw_content);
+            if (($converted === false || $converted === '') && function_exists('iconv')) {
+                foreach (['Windows-1258', 'CP1258', 'Windows-1252', 'ISO-8859-1'] as $fallback_encoding) {
+                    $converted = @iconv($fallback_encoding, 'UTF-8//IGNORE', $raw_content);
+                    if (is_string($converted) && $converted !== '') {
+                        break;
+                    }
+                }
+            }
+            if ($converted === false && function_exists('mb_convert_encoding')) {
+                $converted = @mb_convert_encoding($raw_content, 'UTF-8', (string) $encoding);
+            }
+            if (is_string($converted) && $converted !== '') {
+                $raw_content = $converted;
+            }
+        }
+
+        $raw_content = str_replace(["\r\n", "\r"], "\n", $raw_content);
+        $lines = explode("\n", $raw_content);
+        if (empty($lines)) {
+            return [];
+        }
+
+        $delimiter = ',';
+        $sep_line_index = null;
+        for ($i = 0; $i < min(count($lines), 5); $i++) {
+            $trimmed_line = trim((string) $lines[$i]);
+            if ($i === 0) {
+                $trimmed_line = preg_replace('/^\xEF\xBB\xBF/u', '', $trimmed_line);
+            }
+            if (stripos($trimmed_line, 'sep=') === 0) {
+                $declared_delimiter = substr($trimmed_line, 4, 1);
+                if ($declared_delimiter !== '') {
+                    $delimiter = $declared_delimiter;
+                    $sep_line_index = $i;
+                    $sep_line_number = $i + 1;
+                }
+                break;
+            }
+        }
+
+        if ($sep_line_index === null) {
+            $candidates = [',', ';', "\t"];
+            $best_delimiter = ',';
+            $best_score = -1;
+
+            foreach ($candidates as $candidate) {
+                $score = 0;
+                $samples = 0;
+                for ($i = 0; $i < min(count($lines), 20); $i++) {
+                    $sample_line = trim((string) $lines[$i]);
+                    if ($sample_line === '') {
+                        continue;
+                    }
+                    $fields = str_getcsv($sample_line, $candidate, '"');
+                    $score += is_array($fields) ? count($fields) : 0;
+                    $samples++;
+                }
+
+                if ($samples > 0 && $score > $best_score) {
+                    $best_score = $score;
+                    $best_delimiter = $candidate;
+                }
+            }
+
+            $delimiter = $best_delimiter;
+        }
+
+        $rows = [];
+        foreach ($lines as $line_index => $line) {
+            if ($sep_line_index !== null && $line_index === $sep_line_index) {
+                continue;
+            }
+
+            if ($line === '' || ctype_space($line)) {
+                continue;
+            }
+
+            $cells = str_getcsv((string) $line, $delimiter, '"');
+            if (!is_array($cells)) {
+                continue;
+            }
+
+            if (isset($cells[0])) {
+                $cells[0] = preg_replace('/^\xEF\xBB\xBF/u', '', (string) $cells[0]);
+            }
+
+            foreach ($cells as &$cell) {
+                if (is_string($cell)) {
+                    $cell = trim($cell);
+                }
+            }
+            unset($cell);
+
+            if (count(array_filter($cells, static function ($value) {
+                return $value !== '' && $value !== null;
+            })) === 0) {
+                continue;
+            }
+
+            $rows[] = [
+                'line_number' => $line_index + 1,
+                'cells' => $cells,
+            ];
+        }
+
+        return $rows;
+    }
+}
+
 if (!function_exists('game_bsc_voucher_excel_fetch_export_rows')) {
     function game_bsc_voucher_excel_fetch_export_rows($limit, $offset) {
         global $wpdb;
@@ -297,47 +511,133 @@ if (!function_exists('game_bsc_voucher_excel_render_tools')) {
             return;
         }
 
-        $xlsx_supported = game_bsc_voucher_excel_supports_xlsx();
-        $export_button_text = $xlsx_supported
-            ? 'Export THIRD_PARTY XLSX'
-            : 'Export THIRD_PARTY CSV (fallback)';
-        $import_accept = $xlsx_supported ? '.xlsx,.csv' : '.csv';
-        $import_button_text = $xlsx_supported ? 'Import XLSX/CSV' : 'Import CSV';
+        $xlsx_supported = false;
+        $report_key = sanitize_text_field((string) ($_GET['game_bsc_voucher_excel_report'] ?? ''));
+        $report_status = sanitize_key((string) ($_GET['game_bsc_voucher_excel_status'] ?? 'success'));
+        $report_summary = '';
+        $report_errors = [];
 
+        if ($report_key !== '') {
+            $report = get_transient('game_bsc_voucher_excel_report_' . $report_key);
+            if (is_array($report)) {
+                delete_transient('game_bsc_voucher_excel_report_' . $report_key);
+                $report_summary = isset($report['summary']) ? (string) $report['summary'] : '';
+                $report_errors = isset($report['errors']) && is_array($report['errors']) ? $report['errors'] : [];
+            }
+        }
+        $export_button_text = $xlsx_supported
+            ? 'Xuất tệp THIRD_PARTY (.XLSX)'
+            : 'Xuất tệp THIRD_PARTY (.CSV dự phòng)';
+        $import_accept = '.csv';
+        $export_button_text = 'Xuat tep THIRD_PARTY (.CSV)';
+        $import_button_text = 'Nhap tep CSV';
+        $import_button_text = $xlsx_supported ? 'Nhập tệp XLSX/CSV' : 'Nhập tệp CSV';
+
+        $import_button_text = 'Nhap tep CSV';
         $export_nonce = wp_create_nonce('game_bsc_export_vouchers_excel');
         $import_nonce = wp_create_nonce('game_bsc_import_vouchers_excel');
         ?>
-        <div id="game-bsc-voucher-excel-tools" style="display:none; margin: 12px 0 0; padding: 10px; border:1px solid #ccd0d4; background:#fff; border-radius: 4px;">
-            <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+        <div id="game-bsc-voucher-excel-tools" class="game-bsc-voucher-excel-tools" style="display:none;">
+            <div class="game-bsc-voucher-excel-tools__row">
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex; align-items:center; gap:8px; margin:0;">
                     <input type="hidden" name="action" value="game_bsc_export_vouchers_excel" />
                     <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($export_nonce); ?>" />
-                    <button type="submit" class="button button-secondary"><?php echo esc_html($export_button_text); ?></button>
+                    <button type="submit" class="button button-secondary game-bsc-voucher-excel-tools__btn-secondary"><?php echo esc_html($export_button_text); ?></button>
                 </form>
 
                 <form method="post" enctype="multipart/form-data" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0;">
                     <input type="hidden" name="action" value="game_bsc_import_vouchers_excel" />
                     <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($import_nonce); ?>" />
-                    <input type="file" name="voucher_points_file" accept="<?php echo esc_attr($import_accept); ?>" required />
-                    <select name="import_mode">
-                        <option value="dry-run">Dry-run (khong cap nhat DB)</option>
-                        <option value="apply">Apply (cap nhat DB)</option>
+                    <input class="game-bsc-voucher-excel-tools__file" type="file" name="voucher_points_file" accept="<?php echo esc_attr($import_accept); ?>" required />
+                    <select class="game-bsc-voucher-excel-tools__select" name="import_mode">
+                        <option value="dry-run">Chạy thử (không cập nhật CSDL)</option>
+                        <option value="apply">Áp dụng (cập nhật CSDL)</option>
                     </select>
-                    <button type="submit" class="button button-primary"><?php echo esc_html($import_button_text); ?></button>
+                    <button type="submit" class="button button-primary game-bsc-voucher-excel-tools__btn-primary"><?php echo esc_html($import_button_text); ?></button>
                 </form>
             </div>
             <p style="margin:8px 0 0; color:#50575e;">
-                Chi sua cot <strong>points_cost</strong>. Khuyen nghi chay dry-run truoc khi apply.
+                Chỉ chỉnh cột <strong>points_cost</strong>. Khuyến nghị chạy thử trước khi áp dụng.
             </p>
             <p style="margin:4px 0 0; color:#50575e;">
-                Luu y: khong doi ten cot header, khong xoa dong header.
+                Lưu ý: không đổi tên cột header, không xóa dòng header.
             </p>
-            <?php if (!$xlsx_supported): ?>
+            <?php if (false): ?>
                 <p style="margin:4px 0 0; color:#b32d2e;">
-                    Server dang thieu extension ZIP (ZipArchive), tam thoi chi dung CSV cho import/export.
+                    Máy chủ đang thiếu extension ZIP (ZipArchive), tạm thời chỉ dùng CSV cho nhập/xuất.
                 </p>
             <?php endif; ?>
+            <?php if ($report_summary !== '' || !empty($report_errors)): ?>
+                <div class="game-bsc-voucher-excel-result game-bsc-voucher-excel-result--<?php echo esc_attr($report_status === 'error' ? 'error' : 'success'); ?>">
+                    <p class="game-bsc-voucher-excel-result__title">
+                        <strong><?php echo esc_html($report_status === 'error' ? 'Ket qua import Excel: that bai' : 'Ket qua import Excel: thanh cong'); ?></strong>
+                    </p>
+                    <?php if ($report_summary !== ''): ?>
+                        <p class="game-bsc-voucher-excel-result__summary"><?php echo esc_html($report_summary); ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($report_errors)): ?>
+                        <div class="game-bsc-voucher-excel-result__errors">
+                            <p><strong>Danh sach loi (toi da 20 dong dau):</strong></p>
+                            <ul>
+                                <?php foreach (array_slice($report_errors, 0, 20) as $item): ?>
+                                    <li><?php echo esc_html((string) $item); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
         </div>
+        <style>
+            .game-bsc-voucher-excel-tools {
+                margin: 12px 0 0;
+                padding: 12px;
+                border: 1px solid #dcdcde;
+                background: #fff;
+                border-radius: 8px;
+                box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+            }
+            .game-bsc-voucher-excel-tools__row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px 12px;
+                align-items: center;
+            }
+            .game-bsc-voucher-excel-tools__file {
+                max-width: 260px;
+            }
+            .game-bsc-voucher-excel-tools__select {
+                min-width: 210px;
+            }
+            .game-bsc-voucher-excel-tools__btn-secondary,
+            .game-bsc-voucher-excel-tools__btn-primary {
+                min-height: 32px;
+            }
+            .game-bsc-voucher-excel-result {
+                margin-top: 12px;
+                padding: 12px;
+                border: 1px solid #dcdcde;
+                border-left-width: 4px;
+                border-radius: 6px;
+                background: #f6f7f7;
+            }
+            .game-bsc-voucher-excel-result--success {
+                border-left-color: #00a32a;
+            }
+            .game-bsc-voucher-excel-result--error {
+                border-left-color: #d63638;
+                background: #fcf0f1;
+            }
+            .game-bsc-voucher-excel-result__title,
+            .game-bsc-voucher-excel-result__summary,
+            .game-bsc-voucher-excel-result__errors p {
+                margin: 0 0 8px;
+            }
+            .game-bsc-voucher-excel-result__errors ul {
+                margin: 0 0 0 18px;
+                list-style: disc;
+            }
+        </style>
         <script>
             (function() {
                 var box = document.getElementById('game-bsc-voucher-excel-tools');
@@ -382,17 +682,17 @@ if (!function_exists('game_bsc_render_voucher_excel_notice')) {
         delete_transient('game_bsc_voucher_excel_report_' . $report_key);
 
         $class = ($status === 'error') ? 'notice notice-error' : 'notice notice-success';
-        $title = ($status === 'error') ? 'Xu ly Excel that bai.' : 'Xu ly Excel thanh cong.';
+        $title = ($status === 'error') ? 'Xử lý Excel thất bại.' : 'Xử lý Excel thành công.';
         $summary = isset($report['summary']) ? (string) $report['summary'] : '';
         $errors = isset($report['errors']) && is_array($report['errors']) ? $report['errors'] : [];
         ?>
-        <div class="<?php echo esc_attr($class); ?> is-dismissible">
+        <div class="<?php echo esc_attr($class); ?> is-dismissible game-bsc-voucher-excel-notice">
             <p><strong><?php echo esc_html($title); ?></strong></p>
             <?php if ($summary !== ''): ?>
                 <p><?php echo esc_html($summary); ?></p>
             <?php endif; ?>
             <?php if (!empty($errors)): ?>
-                <p><strong>Danh sach loi (toi da 20 dong dau):</strong></p>
+                <p><strong>Danh sách lỗi (tối đa 20 dòng đầu):</strong></p>
                 <ul style="margin-left:20px; list-style:disc;">
                     <?php foreach (array_slice($errors, 0, 20) as $item): ?>
                         <li><?php echo esc_html((string) $item); ?></li>
@@ -403,7 +703,64 @@ if (!function_exists('game_bsc_render_voucher_excel_notice')) {
         <?php
     }
 }
-add_action('admin_notices', 'game_bsc_render_voucher_excel_notice');
+// Render import/export result inside the voucher Excel tools section instead of admin notices.
+
+if (!function_exists('game_bsc_render_voucher_excel_notice_fallback')) {
+    function game_bsc_render_voucher_excel_notice_fallback() {
+        return;
+        ?>
+        <script>
+            (function() {
+                function insertFallbackNotice() {
+                    var staleNotices = document.querySelectorAll('.game-bsc-voucher-excel-notice');
+                    if (staleNotices && staleNotices.length) {
+                        staleNotices.forEach(function(node) {
+                            if (node && node.parentNode) {
+                                node.parentNode.removeChild(node);
+                            }
+                        });
+                    }
+
+                    var wrap = document.querySelector('.wrap');
+                    if (!wrap) {
+                        return;
+                    }
+
+                    var notice = document.createElement('div');
+                    notice.className = 'notice is-dismissible game-bsc-voucher-excel-notice <?php echo esc_js($status === 'error' ? 'notice-error' : 'notice-success'); ?>';
+                    notice.style.marginTop = '12px';
+                    notice.style.display = 'block';
+                    notice.style.visibility = 'visible';
+                    notice.style.clear = 'both';
+
+                    var title = document.createElement('p');
+                    title.innerHTML = '<strong>' + <?php echo wp_json_encode($status === 'error' ? 'Xử lý Excel thất bại.' : 'Xử lý Excel thành công.'); ?> + '</strong>';
+
+                    var body = document.createElement('p');
+                    body.textContent = <?php echo wp_json_encode($message); ?>;
+
+                    notice.appendChild(title);
+                    notice.appendChild(body);
+
+                    var heading = wrap.querySelector('h1');
+                    if (heading && heading.parentNode) {
+                        heading.insertAdjacentElement('afterend', notice);
+                    } else {
+                        wrap.insertAdjacentElement('afterbegin', notice);
+                    }
+                }
+
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', insertFallbackNotice);
+                } else {
+                    insertFallbackNotice();
+                }
+            })();
+        </script>
+        <?php
+    }
+}
+add_action('admin_footer-edit.php', 'game_bsc_render_voucher_excel_notice_fallback', 40);
 
 if (!function_exists('game_bsc_voucher_excel_update_points')) {
     function game_bsc_voucher_excel_update_points($post_id, $points_cost, $user_id) {
@@ -457,13 +814,26 @@ if (!function_exists('game_bsc_handle_export_vouchers_excel')) {
 
         check_admin_referer('game_bsc_export_vouchers_excel');
 
+        if (function_exists('game_bsc_log_settings_change')) {
+            game_bsc_log_settings_change(
+                'game_bsc_voucher_excel_export',
+                [],
+                [
+                    'requested_by' => (int) get_current_user_id(),
+                    'xlsx_supported' => 0,
+                    'triggered_at' => game_now(),
+                ],
+                'update'
+            );
+        }
+
         @set_time_limit(0);
         @ini_set('display_errors', '0');
         if (function_exists('wp_raise_memory_limit')) {
             wp_raise_memory_limit('admin');
         }
 
-        if (!game_bsc_voucher_excel_supports_xlsx()) {
+        if (true) {
             $headers = game_bsc_voucher_excel_required_headers();
             $filename = 'game-vouchers-third-party-points-' . gmdate('Ymd-His') . '.csv';
             $temp_file = wp_tempnam($filename);
@@ -746,7 +1116,7 @@ if (!function_exists('game_bsc_process_voucher_rows')) {
             }
 
             $db_snapshot = (string) get_post_field('post_modified_gmt', $voucher_id);
-            if ($snapshot_raw !== '' && $db_snapshot !== '' && $snapshot_raw !== $db_snapshot) {
+            if (game_bsc_voucher_excel_snapshots_conflict($snapshot_raw, $db_snapshot)) {
                 $report['conflict_rows']++;
                 $append_error($report, 'Dong ' . $row . ': du lieu da thay doi tren he thong (snapshot conflict), bo qua dong nay.');
                 continue;
@@ -823,134 +1193,39 @@ if (!function_exists('game_bsc_process_voucher_csv_file')) {
             'summary' => '',
         ];
 
-        $raw_content = @file_get_contents($file_path);
-        if ($raw_content === false || $raw_content === '') {
+        $delimiter = ',';
+        $sep_line_number = null;
+        $csv_rows = game_bsc_voucher_excel_read_csv_rows($file_path, $delimiter, $sep_line_number);
+        if (empty($csv_rows)) {
             $error_report['errors'][] = 'Khong mo duoc file CSV hoac file rong.';
             $error_report['summary'] = 'File CSV khong hop le.';
             return $error_report;
         }
 
-        if (strpos($raw_content, "\x00") !== false && function_exists('mb_convert_encoding')) {
-            $encoding = 'UTF-16LE';
-            if (strncmp($raw_content, "\xFE\xFF", 2) === 0) {
-                $encoding = 'UTF-16BE';
-            }
-            $converted_content = @mb_convert_encoding($raw_content, 'UTF-8', $encoding);
-            if (is_string($converted_content) && $converted_content !== '') {
-                $raw_content = $converted_content;
-            }
-        }
-
-        $raw_content = str_replace(["\r\n", "\r"], "\n", $raw_content);
-        $lines = explode("\n", $raw_content);
-        if (empty($lines)) {
-            $error_report['errors'][] = 'File CSV rong.';
-            $error_report['summary'] = 'File CSV khong hop le.';
-            return $error_report;
-        }
-
-        $delimiter = ',';
-        $sep_line_index = null;
-
-        for ($i = 0; $i < min(count($lines), 5); $i++) {
-            $trimmed_line = trim((string) $lines[$i]);
-            if ($i === 0) {
-                $trimmed_line = preg_replace('/^\xEF\xBB\xBF/', '', $trimmed_line);
-            }
-            if (stripos($trimmed_line, 'sep=') === 0) {
-                $declared_delimiter = substr($trimmed_line, 4, 1);
-                if ($declared_delimiter !== '') {
-                    $delimiter = $declared_delimiter;
-                    $sep_line_index = $i;
-                }
-                break;
-            }
-        }
-
-        if ($sep_line_index === null) {
-            $candidates = [',', ';', "\t"];
-            $best_delimiter = ',';
-            $best_score = -1;
-
-            foreach ($candidates as $candidate) {
-                $score = 0;
-                $samples = 0;
-                for ($i = 0; $i < min(count($lines), 20); $i++) {
-                    $sample_line = trim((string) $lines[$i]);
-                    if ($sample_line === '') {
-                        continue;
-                    }
-                    $fields = str_getcsv($sample_line, $candidate);
-                    $score += is_array($fields) ? count($fields) : 0;
-                    $samples++;
-                }
-
-                if ($samples > 0 && $score > $best_score) {
-                    $best_score = $score;
-                    $best_delimiter = $candidate;
-                }
-            }
-
-            $delimiter = $best_delimiter;
-        }
-
-        $has_non_empty_row = false;
-        foreach ($lines as $line_index => $line) {
-            if ($sep_line_index !== null && $line_index === $sep_line_index) {
-                continue;
-            }
-            if (trim((string) $line) !== '') {
-                $has_non_empty_row = true;
-                break;
-            }
-        }
-
-        if (!$has_non_empty_row) {
-            $error_report['errors'][] = 'File CSV khong co du lieu hop le.';
-            $error_report['summary'] = 'File CSV khong hop le.';
-            return $error_report;
-        }
-
         $required_count = count(game_bsc_voucher_excel_required_headers());
-        $best_header_line_index = null;
+        $best_header_row_index = null;
         $best_header_line_number = null;
         $best_header_map = [];
 
-        for ($i = 0; $i < min(count($lines), 120); $i++) {
-            if ($sep_line_index !== null && $i === $sep_line_index) {
-                continue;
-            }
-
-            $line = (string) $lines[$i];
-            if ($i === 0) {
-                $line = preg_replace('/^\xEF\xBB\xBF/', '', $line);
-            }
-            if (trim($line) === '') {
-                continue;
-            }
-
-            $cells = str_getcsv($line, $delimiter);
-            if (!is_array($cells)) {
-                continue;
-            }
-
+        for ($i = 0; $i < min(count($csv_rows), 120); $i++) {
+            $cells = isset($csv_rows[$i]['cells']) && is_array($csv_rows[$i]['cells']) ? $csv_rows[$i]['cells'] : [];
             $candidate_map = game_bsc_voucher_excel_build_header_map($cells, 0);
             if (count($candidate_map) > count($best_header_map)) {
                 $best_header_map = $candidate_map;
-                $best_header_line_index = $i;
-                $best_header_line_number = $i + 1;
+                $best_header_row_index = $i;
+                $best_header_line_number = (int) ($csv_rows[$i]['line_number'] ?? ($i + 1));
             }
 
             if (count($candidate_map) === $required_count) {
                 $best_header_map = $candidate_map;
-                $best_header_line_index = $i;
-                $best_header_line_number = $i + 1;
+                $best_header_row_index = $i;
+                $best_header_line_number = (int) ($csv_rows[$i]['line_number'] ?? ($i + 1));
                 break;
             }
         }
 
         $missing_headers = game_bsc_voucher_excel_find_missing_headers($best_header_map);
-        if ($best_header_line_index === null || !empty($missing_headers)) {
+        if ($best_header_row_index === null || !empty($missing_headers)) {
             $error_report['errors'][] = 'Thieu cot bat buoc: ' . implode(', ', $missing_headers);
             if ($best_header_line_number !== null) {
                 $error_report['errors'][] = 'Khong nhan dien du header day du (dong nghi ngo header: ' . (int) $best_header_line_number . ').';
@@ -961,24 +1236,11 @@ if (!function_exists('game_bsc_process_voucher_csv_file')) {
             return $error_report;
         }
 
-        $row_generator = (function () use ($lines, $delimiter, $sep_line_index, $best_header_line_index, $best_header_map) {
-            for ($i = $best_header_line_index + 1; $i < count($lines); $i++) {
-                if ($sep_line_index !== null && $i === $sep_line_index) {
-                    continue;
-                }
-
-                $line = (string) $lines[$i];
-                if (trim($line) === '') {
-                    continue;
-                }
-
-                $csv_row = str_getcsv($line, $delimiter);
-                if (!is_array($csv_row)) {
-                    continue;
-                }
-
+        $row_generator = (function () use ($csv_rows, $best_header_row_index, $best_header_map) {
+            for ($i = $best_header_row_index + 1; $i < count($csv_rows); $i++) {
+                $csv_row = isset($csv_rows[$i]['cells']) && is_array($csv_rows[$i]['cells']) ? $csv_rows[$i]['cells'] : [];
                 yield [
-                    'row_number' => $i + 1,
+                    'row_number' => (int) ($csv_rows[$i]['line_number'] ?? ($i + 1)),
                     'voucher_id' => isset($csv_row[$best_header_map['voucher_id']]) ? $csv_row[$best_header_map['voucher_id']] : '',
                     'points_cost' => isset($csv_row[$best_header_map['points_cost']]) ? $csv_row[$best_header_map['points_cost']] : '',
                     'snapshot_post_modified_gmt' => isset($csv_row[$best_header_map['snapshot_post_modified_gmt']]) ? $csv_row[$best_header_map['snapshot_post_modified_gmt']] : '',
@@ -991,81 +1253,25 @@ if (!function_exists('game_bsc_process_voucher_csv_file')) {
 }
 
 if (!function_exists('game_bsc_process_voucher_excel_file')) {
-    function game_bsc_process_voucher_excel_file($file_path, $mode = 'dry-run', $file_ext = 'xlsx') {
+    function game_bsc_process_voucher_excel_file($file_path, $mode = 'dry-run', $file_ext = 'csv') {
         $mode = ($mode === 'apply') ? 'apply' : 'dry-run';
         $file_ext = strtolower((string) $file_ext);
 
-        if ($file_ext === 'csv') {
-            return game_bsc_process_voucher_csv_file($file_path, $mode);
+        if ($file_ext !== 'csv') {
+            return [
+                'mode' => $mode,
+                'total_rows' => 0,
+                'valid_rows' => 0,
+                'updated_rows' => 0,
+                'skipped_rows' => 0,
+                'conflict_rows' => 0,
+                'error_rows' => 1,
+                'errors' => ['Chi ho tro file .csv cho chuc nang nay.'],
+                'summary' => 'Dinh dang file khong hop le.',
+            ];
         }
 
-        $report = [
-            'mode' => $mode,
-            'total_rows' => 0,
-            'valid_rows' => 0,
-            'updated_rows' => 0,
-            'skipped_rows' => 0,
-            'conflict_rows' => 0,
-            'error_rows' => 0,
-            'errors' => [],
-            'summary' => '',
-        ];
-
-        if (!game_bsc_voucher_excel_supports_xlsx()) {
-            $report['error_rows'] = 1;
-            $report['errors'][] = 'Server thieu extension ZIP (ZipArchive).';
-            $report['errors'][] = 'Vui long luu file thanh CSV roi import lai.';
-            $report['summary'] = 'Khong the xu ly file XLSX tren server hien tai.';
-            return $report;
-        }
-
-        if (!class_exists('\\PhpOffice\\PhpSpreadsheet\\IOFactory')) {
-            $report['error_rows'] = 1;
-            $report['errors'][] = 'PhpSpreadsheet IOFactory chua duoc nap.';
-            $report['summary'] = 'Khong the xu ly file XLSX tren server hien tai.';
-            return $report;
-        }
-
-        $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($file_path);
-        if (method_exists($reader, 'setReadDataOnly')) {
-            $reader->setReadDataOnly(true);
-        }
-        $spreadsheet = $reader->load($file_path);
-        $sheet = $spreadsheet->getActiveSheet();
-
-        $header_row = 1;
-        $header_map = game_bsc_voucher_excel_extract_header_map($sheet, $header_row);
-        $missing_headers = game_bsc_voucher_excel_find_missing_headers($header_map);
-
-        if (!empty($missing_headers)) {
-            $report['error_rows'] = 1;
-            $report['errors'][] = 'Thieu cot bat buoc: ' . implode(', ', $missing_headers);
-            $report['errors'][] = 'Khong nhan dien du header day du (dong nghi ngo header: ' . (int) $header_row . ').';
-            $report['summary'] = 'File khong hop le: thieu cot bat buoc.';
-            $spreadsheet->disconnectWorksheets();
-            unset($spreadsheet);
-            return $report;
-        }
-
-        $highest_row = (int) $sheet->getHighestDataRow();
-
-        $row_generator = (function () use ($sheet, $header_map, $header_row, $highest_row) {
-            for ($row = ((int) $header_row + 1); $row <= $highest_row; $row++) {
-                yield [
-                    'row_number' => $row,
-                    'voucher_id' => game_bsc_read_sheet_cell($sheet, $header_map['voucher_id'], $row),
-                    'points_cost' => game_bsc_read_sheet_cell($sheet, $header_map['points_cost'], $row),
-                    'snapshot_post_modified_gmt' => game_bsc_read_sheet_cell($sheet, $header_map['snapshot_post_modified_gmt'], $row),
-                ];
-            }
-        })();
-
-        $report = game_bsc_process_voucher_rows($row_generator, $mode);
-
-        $spreadsheet->disconnectWorksheets();
-        unset($spreadsheet);
-
-        return $report;
+        return game_bsc_process_voucher_csv_file($file_path, $mode);
     }
 }
 
@@ -1088,7 +1294,7 @@ if (!function_exists('game_bsc_handle_import_vouchers_excel')) {
         if (empty($_FILES['voucher_points_file']) || !isset($_FILES['voucher_points_file']['error'])) {
             game_bsc_redirect_voucher_excel_report([
                 'summary' => 'Khong tim thay file upload.',
-                'errors' => ['Vui long chon file .xlsx de import.'],
+                'errors' => ['Vui long chon file .csv de import.'],
             ], 'error');
         }
 
@@ -1107,34 +1313,16 @@ if (!function_exists('game_bsc_handle_import_vouchers_excel')) {
         }
 
         $ext = strtolower((string) pathinfo((string) $_FILES['voucher_points_file']['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, ['xlsx', 'csv'], true)) {
+        if ($ext !== 'csv') {
             game_bsc_redirect_voucher_excel_report([
                 'summary' => 'Dinh dang file khong hop le.',
-                'errors' => ['Chi ho tro file .xlsx hoac .csv.'],
-            ], 'error');
-        }
-
-        if ($ext === 'xlsx' && !game_bsc_voucher_excel_supports_xlsx()) {
-            game_bsc_redirect_voucher_excel_report([
-                'summary' => 'Server khong ho tro xu ly XLSX.',
-                'errors' => [
-                    'Khong tim thay class ZipArchive (PHP extension ZIP).',
-                    'Vui long luu file thanh CSV va import lai.',
-                ],
-            ], 'error');
-        }
-
-        if ($ext === 'xlsx' && !class_exists('\\PhpOffice\\PhpSpreadsheet\\IOFactory')) {
-            game_bsc_redirect_voucher_excel_report([
-                'summary' => 'Khong tim thay PhpSpreadsheet trong he thong.',
-                'errors' => ['PhpSpreadsheet IOFactory chua duoc nap.'],
+                'errors' => ['Chi ho tro file .csv.'],
             ], 'error');
         }
 
         $upload = wp_handle_upload($_FILES['voucher_points_file'], [
             'test_form' => false,
             'mimes' => [
-                'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 'csv' => 'text/csv',
             ],
         ]);
@@ -1185,6 +1373,24 @@ if (!function_exists('game_bsc_handle_import_vouchers_excel')) {
 
         if (file_exists($file_path)) {
             @unlink($file_path);
+        }
+
+        if (function_exists('game_bsc_log_settings_change')) {
+            game_bsc_log_settings_change(
+                'game_bsc_voucher_excel_import',
+                [],
+                [
+                    'requested_by' => (int) get_current_user_id(),
+                    'mode' => $mode,
+                    'file_ext' => $ext,
+                    'total_rows' => (int) ($report['total_rows'] ?? 0),
+                    'updated_rows' => (int) ($report['updated_rows'] ?? 0),
+                    'error_rows' => (int) ($report['error_rows'] ?? 0),
+                    'status' => ((int) ($report['error_rows'] ?? 0) > 0) ? 'error' : 'success',
+                    'triggered_at' => game_now(),
+                ],
+                'update'
+            );
         }
 
         $status = ((int) ($report['error_rows'] ?? 0) > 0) ? 'error' : 'success';
