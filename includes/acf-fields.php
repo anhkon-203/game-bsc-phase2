@@ -148,6 +148,60 @@ function game_bsc_register_acf_fields() {
 				'wrapper' => array('width' => 50),
 			),
 			array(
+				'key'   => 'field_voucheramt',
+				'label' => 'Voucher Amt',
+				'name'  => 'voucheramt',
+				'type'  => 'number',
+				'wrapper' => array('width' => 33),
+				'step' => '0.01',
+				'default_value' => 0,
+				'conditional_logic' => array(
+					array(
+						array(
+							'field'    => 'field_voucher_type',
+							'operator' => '==',
+							'value'    => 'BSC',
+						),
+					),
+				),
+			),
+			array(
+				'key'   => 'field_prinpaid',
+				'label' => 'Prin Paid',
+				'name'  => 'prinpaid',
+				'type'  => 'number',
+				'wrapper' => array('width' => 33),
+				'step' => '0.01',
+				'default_value' => 0,
+				'conditional_logic' => array(
+					array(
+						array(
+							'field'    => 'field_voucher_type',
+							'operator' => '==',
+							'value'    => 'BSC',
+						),
+					),
+				),
+			),
+			array(
+				'key'   => 'field_reamt',
+				'label' => 'Re Amt',
+				'name'  => 'reamt',
+				'type'  => 'number',
+				'wrapper' => array('width' => 33),
+				'step' => '0.01',
+				'default_value' => 0,
+				'conditional_logic' => array(
+					array(
+						array(
+							'field'    => 'field_voucher_type',
+							'operator' => '==',
+							'value'    => 'BSC',
+						),
+					),
+				),
+			),
+			array(
 				'key'   => 'field_gotit_product_id',
 				'label' => 'Got It Product ID',
 				'name'  => 'gotit_product_id',
@@ -538,6 +592,30 @@ function game_bsc_register_acf_fields() {
 	add_filter('acf/prepare_field/name=redemption_count', function ($field) {
 		if (is_admin()) {
 			$field['disabled'] = 1;
+		}
+		return $field;
+	});
+
+	add_filter('acf/prepare_field/name=voucheramt', function ($field) {
+		if (is_admin()) {
+			$field['readonly'] = 1;
+			$field['instructions'] = 'Dong bo tu dong tu BSC Trading API.';
+		}
+		return $field;
+	});
+
+	add_filter('acf/prepare_field/name=prinpaid', function ($field) {
+		if (is_admin()) {
+			$field['readonly'] = 1;
+			$field['instructions'] = 'Dong bo tu dong tu BSC Trading API.';
+		}
+		return $field;
+	});
+
+	add_filter('acf/prepare_field/name=reamt', function ($field) {
+		if (is_admin()) {
+			$field['readonly'] = 1;
+			$field['instructions'] = 'Dong bo tu dong tu BSC Trading API.';
 		}
 		return $field;
 	});
