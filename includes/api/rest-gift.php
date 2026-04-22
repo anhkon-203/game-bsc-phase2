@@ -267,7 +267,8 @@ function game_bsc_resolve_partner_logo_url($logo_value) {
 /**
  * Lấy danh sách voucher đã đăng ký từ BSC Trading API và sync vào field voucher nội bộ.
  * Map: voucherid (API) <=> voucher_code (admin game BSC).
- * Chỉ update field khi dữ liệu thay đổi: voucheramt, prinpaid, reamt.
+	 * Chỉ update field khi dữ liệu thay đổi: prinpaid.
+	 * voucheramt và reamt không còn được đồng bộ từ BSC API.
  *
  * @param WP_REST_Request $request
  * @return WP_REST_Response
@@ -494,9 +495,7 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 			continue;
 		}
 
-		$voucheramt = $normalize_registered_voucher_amount($item['voucheramt'] ?? 0);
 		$prinpaid = $normalize_registered_voucher_amount($item['prinpaid'] ?? 0);
-		$reamt = $normalize_registered_voucher_amount($item['reamt'] ?? 0);
 
 		$post_ids = $voucher_map[$voucher_code] ?? [];
 		$item_updated_fields = [];
@@ -506,9 +505,7 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 			$unmatched_items++;
 			$result_items[] = [
 				'voucherid' => $voucher_code,
-				'voucheramt' => $voucheramt,
 				'prinpaid' => $prinpaid,
-				'reamt' => $reamt,
 				'voucher_post_ids' => [],
 				'matched' => false,
 				'updated_fields' => [],
@@ -520,22 +517,7 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 
 		// Một voucher_code có thể map nhiều post_id, cập nhật tất cả bản ghi match.
 		foreach ($post_ids as $post_id) {
-			$current_voucheramt = get_post_meta($post_id, 'voucheramt', true);
 			$current_prinpaid = get_post_meta($post_id, 'prinpaid', true);
-			$current_reamt = get_post_meta($post_id, 'reamt', true);
-
-			// Update có điều kiện: chỉ ghi DB khi giá trị thật sự thay đổi.
-			if ($registered_voucher_value_changed($current_voucheramt, $voucheramt)) {
-				update_post_meta($post_id, 'voucheramt', $voucheramt);
-				$item_updated_fields[] = [
-					'post_id' => $post_id,
-					'field' => 'voucheramt',
-					'old' => $current_voucheramt,
-					'new' => $voucheramt,
-				];
-				$updated_fields++;
-				$updated_posts[$post_id] = true;
-			}
 
 			if ($registered_voucher_value_changed($current_prinpaid, $prinpaid)) {
 				update_post_meta($post_id, 'prinpaid', $prinpaid);
@@ -549,24 +531,11 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 				$updated_posts[$post_id] = true;
 			}
 
-			if ($registered_voucher_value_changed($current_reamt, $reamt)) {
-				update_post_meta($post_id, 'reamt', $reamt);
-				$item_updated_fields[] = [
-					'post_id' => $post_id,
-					'field' => 'reamt',
-					'old' => $current_reamt,
-					'new' => $reamt,
-				];
-				$updated_fields++;
-				$updated_posts[$post_id] = true;
-			}
 		}
 
 		$result_items[] = [
 			'voucherid' => $voucher_code,
-			'voucheramt' => $voucheramt,
 			'prinpaid' => $prinpaid,
-			'reamt' => $reamt,
 			'voucher_post_ids' => array_values($post_ids),
 			'matched' => true,
 			'updated_fields' => $item_updated_fields,
@@ -1034,11 +1003,13 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 			if ($is_bsc_voucher) {
 				$voucheramt = $normalize_bsc_amount(get_post_meta($post_id, 'voucheramt', true));
 				$prinpaid = $normalize_bsc_amount(get_post_meta($post_id, 'prinpaid', true));
-				$reamt = $normalize_bsc_amount(get_post_meta($post_id, 'reamt', true));
 
 				$voucher_item['voucheramt'] = $voucheramt;
 				$voucher_item['prinpaid'] = $prinpaid;
-				$voucher_item['reamt'] = $reamt;
+
+				// Điều kiện và điều khoản (wysiwyg field riêng cho BSC)
+				$bsc_terms_raw = get_field('bsc_voucher_terms', $post_id);
+				$voucher_item['terms'] = wp_kses_post((string) ($bsc_terms_raw ?: ''));
 			}
 
 			$formatted_vouchers[] = $voucher_item;

@@ -179,6 +179,7 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 			$voucher_id = (int)$redemption['voucher_post_id'];
 			$voucher_code = get_field('voucher_code', $voucher_id) ?? 'N/A';
 			$voucher_type = get_field('voucher_type', $voucher_id) ?? 'BSC';
+			$is_bsc_voucher = strtoupper(trim((string) $voucher_type)) === 'BSC';
 			
 			// Lấy thông tin validity
 			$validity_data = get_field('validity', $voucher_id) ?: [];
@@ -210,6 +211,7 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 			$formatted['voucher_name'] = sanitize_text_field($redemption['voucher_name']);
 			$formatted['voucher_type'] = $voucher_type;
 			$formatted['voucher_type_label'] = ($voucher_type === 'BSC') ? 'Voucher tại BSC' : 'Voucher bên thứ 3';
+			$formatted['voucher_value'] = $is_bsc_voucher ? (float) (get_field('voucheramt', $voucher_id) ?? 0) : null;
 			$formatted['points_cost'] = (int)(get_field('points_cost', $voucher_id) ?? 0);
 			$formatted['validity_display'] = $validity_display;
 			$formatted['valid_from'] = $valid_from;

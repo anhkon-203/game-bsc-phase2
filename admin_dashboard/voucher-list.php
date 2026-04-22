@@ -13,7 +13,8 @@ $current_time = $now->format('H:i:s');
 
 <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;700&display=swap" rel="stylesheet">
 <!-- Highcharts -->
-<script src="https://code.highcharts.com/highcharts.js"></script>
+						<th class="px-6 py-3 text-left">Giá trị voucher</th>
+						<th class="px-6 py-3 text-left">Số điểm cần đổi voucher</th>
 <script src="https://code.highcharts.com/modules/exporting.js"></script>
 <script src="https://code.highcharts.com/modules/export-data.js"></script>
 <script src="https://code.highcharts.com/modules/no-data-to-display.js"></script>
@@ -167,7 +168,7 @@ $current_time = $now->format('H:i:s');
 					</div>
 					
 					<!-- Table -->
-					<div class="overflow-x-auto table-general">
+					<div class="overflow-x-auto overflow-y-auto max-h-[70vh] table-general">
 						<table class="min-w-full border-collapse divide-y divide-gray-200">
 							<thead class="bg-gray-50">
 							<tr>
@@ -176,7 +177,8 @@ $current_time = $now->format('H:i:s');
 								<th class="px-6 py-3 text-left">AFACCTNO</th>
 								<th class="px-6 py-3 text-left">Mã voucher / Tên hiện vật</th>
 								<th class="px-6 py-3 text-left">Thời gian đổi</th>
-								<th class="px-6 py-3 text-left">VOUCHERAMT</th>
+								<th class="px-6 py-3 text-left">Giá trị voucher</th>
+								<th class="px-6 py-3 text-left">Số điểm cần đổi voucher</th>
 								<th class="px-6 py-3 text-left">DESCRIPTION</th>
 <!--								<th class="px-6 py-3 text-left">Thông tin user</th>-->
 								<th class="px-6 py-3 text-left">Loại voucher</th>
@@ -214,12 +216,19 @@ $current_time = $now->format('H:i:s');
 										<td class="px-6 py-3"><?php echo esc_html($redemption['redeemed_at_display']); ?></td>
 										<td class="px-6 py-3">
                                             <?php if ($redemption['gift_type'] === 'voucher'): ?>
-                                            <?php echo esc_html(number_format($redemption['points_cost']) ?? null); ?>
+											<?php echo ($redemption['voucher_type'] === 'BSC') ? esc_html(number_format((float) ($redemption['voucher_value'] ?? 0), 0, ',', '.')) : 'N/A'; ?>
                                             <?php else: ?>
-                                            0
+											N/A
+											<?php endif; ?>
+										</td>
+										<td class="px-6 py-3">
+											<?php if ($redemption['gift_type'] === 'voucher'): ?>
+											<?php echo esc_html(number_format((int) ($redemption['points_cost'] ?? 0))); ?>
+											<?php else: ?>
+											N/A
                                             <?php endif; ?>
                                         </td>
-                                        <td class="text-sm text-gray-500">
+				                                        <td class="text-sm text-gray-500 px-6 py-3">
                                             <?php if ($redemption['gift_type'] === 'voucher'): ?>
                                             <?php echo esc_html($redemption['voucher_name']); ?>
                                             <?php endif; ?>
@@ -280,7 +289,7 @@ $current_time = $now->format('H:i:s');
 								<?php endforeach; ?>
 							<?php else: ?>
 								<tr>
-									<td colspan="10" class="px-6 py-8 text-center text-gray-500">
+									<td colspan="11" class="px-6 py-8 text-center text-gray-500">
 										Không có dữ liệu để hiển thị
 									</td>
 								</tr>
@@ -347,12 +356,11 @@ function exportVoucherListToCSV() {
 	const headers = [
 		'CUSTODYCD',
 		'AFACCTNO',
-		'VOUCHERID',
-		'REGDATE',
-		'VOUCHERAMT',
+		'VOUCHER_ID',
+		'REDEEMED_AT',
+		'VOUCHER_VALUE',
+		'POINTS_REQUIRED',
 		'DESCRIPTION',
-		// 'Loại voucher'
-		// 'Loại quà'
 	];
 
 	// Build CSV content
@@ -366,7 +374,8 @@ function exportVoucherListToCSV() {
 		const voucherCode = row.gift_type === 'voucher' ? row.voucher_code : row.artifact_name;
 		const voucherName = row.gift_type === 'voucher' ? row.voucher_name : 'Hiện vật';
 		const voucherType = row.gift_type === 'voucher' ? row.voucher_type_label : 'N/A';
-        const voucherAmt = row.gift_type === 'voucher' ? row.points_cost : '';
+		const voucherValue = row.gift_type === 'voucher' && row.voucher_type === 'BSC' ? row.voucher_value : '';
+		const pointsCost = row.gift_type === 'voucher' ? row.points_cost : '';
 
 		const rowData = [
 			// row.stt,                    // STT
@@ -374,7 +383,8 @@ function exportVoucherListToCSV() {
 			'',                         // AFACCTNO (để trống)
 			voucherCode,                // Mã voucher / Tên hiện vật
 			row.redeemed_at_display,    // Thời gian đổi
-			voucherAmt,                 // VOUCHERAMT
+			voucherValue,               // GIÁ_TRỊ_VOUCHER
+			pointsCost,                 // SỐ_ĐIỂM_CẦN_ĐỔI
 			voucherName,                // DESCRIPTION
 			// voucherType,                // Loại voucher
 			// row.gift_type_label         // Loại quà

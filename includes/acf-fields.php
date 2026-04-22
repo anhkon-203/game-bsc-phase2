@@ -149,7 +149,7 @@ function game_bsc_register_acf_fields() {
 			),
 			array(
 				'key'   => 'field_voucheramt',
-				'label' => 'Voucher Amt',
+				'label' => 'Giá trị voucher',
 				'name'  => 'voucheramt',
 				'type'  => 'number',
 				'wrapper' => array('width' => 33),
@@ -167,26 +167,8 @@ function game_bsc_register_acf_fields() {
 			),
 			array(
 				'key'   => 'field_prinpaid',
-				'label' => 'Prin Paid',
+				'label' => 'Số tiền đã sử dụng',
 				'name'  => 'prinpaid',
-				'type'  => 'number',
-				'wrapper' => array('width' => 33),
-				'step' => '0.01',
-				'default_value' => 0,
-				'conditional_logic' => array(
-					array(
-						array(
-							'field'    => 'field_voucher_type',
-							'operator' => '==',
-							'value'    => 'BSC',
-						),
-					),
-				),
-			),
-			array(
-				'key'   => 'field_reamt',
-				'label' => 'Re Amt',
-				'name'  => 'reamt',
 				'type'  => 'number',
 				'wrapper' => array('width' => 33),
 				'step' => '0.01',
@@ -405,6 +387,27 @@ function game_bsc_register_acf_fields() {
 					),
 				),
 			),
+			// Điều kiện và điều khoản - chỉ hiển thị cho Voucher BSC
+			array(
+				'key'          => 'field_bsc_voucher_terms',
+				'label'        => 'Điều kiện và điều khoản',
+				'name'         => 'bsc_voucher_terms',
+				'type'         => 'wysiwyg',
+				'tabs'         => 'all',
+				'toolbar'      => 'full',
+				'media_upload' => 0,
+				'delay'        => 0,
+				'wrapper'      => array('width' => 100),
+				'conditional_logic' => array(
+					array(
+						array(
+							'field'    => 'field_voucher_type',
+							'operator' => '==',
+							'value'    => 'BSC',
+						),
+					),
+				),
+			),
 			array(
 				'key'   => 'field_voucher_applicable_stores',
 				'label' => 'Cửa hàng áp dụng',
@@ -598,8 +601,8 @@ function game_bsc_register_acf_fields() {
 
 	add_filter('acf/prepare_field/name=voucheramt', function ($field) {
 		if (is_admin()) {
-			$field['readonly'] = 1;
-			$field['instructions'] = 'Dong bo tu dong tu BSC Trading API.';
+			unset($field['readonly']);
+			$field['instructions'] = '';
 		}
 		return $field;
 	});
@@ -607,15 +610,7 @@ function game_bsc_register_acf_fields() {
 	add_filter('acf/prepare_field/name=prinpaid', function ($field) {
 		if (is_admin()) {
 			$field['readonly'] = 1;
-			$field['instructions'] = 'Dong bo tu dong tu BSC Trading API.';
-		}
-		return $field;
-	});
-
-	add_filter('acf/prepare_field/name=reamt', function ($field) {
-		if (is_admin()) {
-			$field['readonly'] = 1;
-			$field['instructions'] = 'Dong bo tu dong tu BSC Trading API.';
+			$field['instructions'] = '';
 		}
 		return $field;
 	});

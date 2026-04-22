@@ -54,13 +54,15 @@ function game_bsc_admin_menu() {
 		'dashboard_config'
 	);
 	
+
+
 	add_submenu_page(
 		'game-bsc-main',
-		__('Test API v2', WG_GAME_PLUGIN_TEXTDOMAIN),
-		__('Test API v2', WG_GAME_PLUGIN_TEXTDOMAIN),
-		'admin_game',
-		'game-bsc-test-api',
-		'game_bsc_test_api_page'
+		__('Cửa hàng áp dụng', WG_GAME_PLUGIN_TEXTDOMAIN),
+		__('Cửa hàng áp dụng', WG_GAME_PLUGIN_TEXTDOMAIN),
+		'manage_options',
+		'game-bsc-stores-tool',
+		'game_bsc_render_stores_tool_page'
 	);
 	
 }
@@ -71,22 +73,7 @@ function dashboard_config(){
 }
 add_action('admin_menu', 'game_bsc_admin_menu'); // admin pages
 
-/**
- * Ẩn menu Test API trên sidebar bằng CSS,
- * vẫn giữ page được đăng ký để truy cập trực tiếp qua URL.
- */
-function game_bsc_hide_test_api_submenu_css() {
-    if (!current_user_can('admin_game') && !current_user_can('administrator')) {
-        return;
-    }
 
-    echo '<style>
-        #toplevel_page_game-bsc-main .wp-submenu a[href="admin.php?page=game-bsc-test-api"] {
-            display: none !important;
-        }
-    </style>';
-}
-add_action('admin_head', 'game_bsc_hide_test_api_submenu_css', 99);
 
 /**
  * Enqueue WordPress Media Library scripts for settings page
@@ -199,5 +186,6 @@ require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/settings.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/manage-artifacts.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/helpers/artifact-detail.php';
 
-// Test API Page
-require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/test-api.php';
+
+// Voucher Stores Tool
+require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/voucher-stores-tool.php';
