@@ -26,3 +26,17 @@ add_filter('template_include', function($template) {
     }
     return $template;
 });
+
+// ===== Test Drops Page: /game-bsc-test-drops =====
+add_action('init', function() {
+    // Lấy path từ REQUEST_URI, bỏ query string
+    $path = trim( parse_url( $_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH ), '/' );
+
+    if ( $path === 'game-bsc-test-drops' ) {
+        $tpl = GAME_BSC_PLUGIN_DIR . 'templates/template-test-drops.php';
+        if ( file_exists( $tpl ) ) {
+            include $tpl;
+            exit;
+        }
+    }
+}, 20);

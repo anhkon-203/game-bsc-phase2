@@ -320,7 +320,18 @@ function game_bsc_manage_artifacts_page() {
                 </tr>
                 <tr>
                     <th>Số lượt đổi tối đa</th>
-                    <td><input type="number" name="artifacts[${index}][max_redemptions]" min="0" value="0"></td>
+                    <td>
+                        <input type="number" name="artifacts[${index}][max_redemptions]" min="1" value="1">
+                        <p class="description">Mỗi kỳ tối đa 1 bộ. VD: 4 lượt đổi + 30 ngày → 4 kỳ, mỗi kỳ ~7 ngày.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Thời hạn hiện vật</th>
+                    <td>
+                        <label>Từ ngày: <input type="datetime-local" name="artifacts[${index}][period_start]" style="margin-right:12px;"></label>
+                        <label>Đến ngày: <input type="datetime-local" name="artifacts[${index}][period_end]"></label>
+                        <p class="description">Để trống nếu không giới hạn thời gian. Số kỳ tung quà = Số lượt đổi tối đa.</p>
+                    </td>
                 </tr>
                 <tr>
                     <th>Trạng thái</th>
@@ -596,6 +607,24 @@ function game_bsc_handle_save_artifact() {
             $status          = (int)($artifact['status'] ?? 0);
             $status          = ($status === 1) ? 1 : 0;
 
+            // -------- Thời hạn & Kỳ (tự động: số kỳ = max_redemptions, mỗi kỳ tối đa 1 bộ) ----------
+            $period_start_raw = sanitize_text_field($artifact['period_start'] ?? '');
+            $period_end_raw   = sanitize_text_field($artifact['period_end'] ?? '');
+            $total_periods    = max(1, $max_redemptions); // Số kỳ = Số lượt đổi tối đa
+            $max_per_period   = 1; // Luôn tối đa 1 hiện vật/kỳ
+
+            // Chuyển datetime-local (Y-m-d\TH:i) → MySQL datetime (Y-m-d H:i:s)
+            $period_start = !empty($period_start_raw) ? str_replace('T', ' ', $period_start_raw) . ':00' : null;
+            $period_end   = !empty($period_end_raw) ? str_replace('T', ' ', $period_end_raw) . ':00' : null;
+
+            // Validate thời hạn
+            if ($period_start && $period_end && $period_start > $period_end) {
+                throw new Exception(sprintf(
+                    __('Ngày bắt đầu phải trước ngày kết thúc cho hiện vật "%s".', WG_GAME_PLUGIN_TEXTDOMAIN),
+                    $name
+                ));
+            }
+
             // ✅ XỬ LÝ UPLOAD ẢNH HIỆN VẬT từ $_FILES chuẩn hoá
             $artifacts_url = '';
             if (isset($files_by_index[$artifact_index])) {
@@ -696,13 +725,17 @@ function game_bsc_handle_save_artifact() {
                 $ok = $wpdb->update(
                         $artifacts_table,
                         [
-                                'name'            => $name,
-                                'max_redemptions' => $max_redemptions,
-                                'status'          => $status,
-                                'artifacts_url'   => $artifacts_url,
+                                'name'                       => $name,
+                                'max_redemptions'            => $max_redemptions,
+                                'status'                     => $status,
+                                'artifacts_url'              => $artifacts_url,
+                                'period_start'               => $period_start,
+                                'period_end'                 => $period_end,
+                                'total_periods'              => $total_periods,
+                                'max_redemptions_per_period' => $max_per_period,
                         ],
                         ['id' => $id],
-                        ['%s','%d','%d','%s'],
+                        ['%s','%d','%d','%s','%s','%s','%d','%d'],
                         ['%d']
                 );
                 if ($ok === false) {
@@ -713,12 +746,16 @@ function game_bsc_handle_save_artifact() {
                 $ok = $wpdb->insert(
                         $artifacts_table,
                         [
-                                'name'            => $name,
-                                'max_redemptions' => $max_redemptions,
-                                'status'          => $status,
-                                'artifacts_url'   => $artifacts_url,
+                                'name'                       => $name,
+                                'max_redemptions'            => $max_redemptions,
+                                'status'                     => $status,
+                                'artifacts_url'              => $artifacts_url,
+                                'period_start'               => $period_start,
+                                'period_end'                 => $period_end,
+                                'total_periods'              => $total_periods,
+                                'max_redemptions_per_period' => $max_per_period,
                         ],
-                        ['%s','%d','%d','%s']
+                        ['%s','%d','%d','%s','%s','%s','%d','%d']
                 );
                 if ($ok === false) {
                     throw new Exception($wpdb->last_error ?: __('Không thể tạo hiện vật.', WG_GAME_PLUGIN_TEXTDOMAIN));
@@ -933,6 +970,12 @@ function game_bsc_render_artifact_fieldset_prefilled($index, $artifact, $pieces)
     foreach ($pieces as $p) {
         $piece_map[$p->piece_code] = $p;
     }
+
+    // Format datetime cho input datetime-local (Y-m-d\TH:i)
+    $period_start_val = !empty($artifact->period_start) ? date('Y-m-d\TH:i', strtotime($artifact->period_start)) : '';
+    $period_end_val   = !empty($artifact->period_end) ? date('Y-m-d\TH:i', strtotime($artifact->period_end)) : '';
+    $total_periods_val = (int)($artifact->total_periods ?? 1);
+    $max_per_period_val = (int)($artifact->max_redemptions_per_period ?? 0);
     ?>
     <fieldset class="artifact-fieldset" data-index="<?php echo (int)$index; ?>" style="border:1px solid #ccc;margin-bottom:16px;padding:10px;position:relative;">
         <legend>Hiện vật #<?php echo (int)$index + 1; ?></legend>
@@ -948,6 +991,14 @@ function game_bsc_render_artifact_fieldset_prefilled($index, $artifact, $pieces)
             <tr>
                 <th>Số lượt đổi tối đa</th>
                 <td><input type="number" name="artifacts[<?php echo (int)$index; ?>][max_redemptions]" min="1" value="<?php echo (int)$artifact->max_redemptions; ?>"></td>
+            </tr>
+            <tr>
+                <th>Thời hạn hiện vật</th>
+                <td>
+                    <label>Từ ngày: <input type="datetime-local" name="artifacts[<?php echo (int)$index; ?>][period_start]" value="<?php echo esc_attr($period_start_val); ?>" style="margin-right:12px;"></label>
+                    <label>Đến ngày: <input type="datetime-local" name="artifacts[<?php echo (int)$index; ?>][period_end]" value="<?php echo esc_attr($period_end_val); ?>"></label>
+                    <p class="description">Để trống nếu không giới hạn thời gian. Số kỳ tung quà = Số lượt đổi tối đa (<?php echo (int)$artifact->max_redemptions; ?> kỳ), mỗi kỳ tối đa 1 bộ.</p>
+                </td>
             </tr>
             <tr>
                 <th>Trạng thái</th>

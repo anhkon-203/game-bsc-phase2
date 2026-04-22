@@ -440,102 +440,182 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
     global $wpdb;
     $prefix = $wpdb->prefix . 'game_';
 
-    // Lấy số mảnh rơi tối đa của hệ thống
+    // ===== Bước 0: Các limit hệ thống (giữ nguyên logic cũ) =====
     $system_piece_today = (int)get_option('game_bsc_max_drop_pieces_per_day', 0);
-    // Lấy số mảnh đã rơi trong ngày của toàn hệ thống
     $system_piece_rewarded_today = count_piece_drops_today();
-    // Lấy số mảnh rơi tối đa của user
     $user_piece_today = (int)get_option('game_bsc_max_user_drop_pieces_per_day', 3);
-    // Lấy số mảnh đã rơi trong ngày của user
     $user_piece_rewarded_today = count_piece_drops_today( $user_id );
-    // Xác suất rơi mảnh 30%, điểm 70%
-    // Lấy xác xuất rơi mảnh trong admin
     $piece_drop_rate = (int)get_option('game_bsc_piece_drop_rate', 30);
     if(empty($piece_drop_rate)) {
         $piece_drop_rate = 30;
     }
     $is_piece = (rand(1, 100) <= $piece_drop_rate);
     
+    // Nếu hệ thống hoặc user đã hết quota ngày hoặc random ra điểm → thưởng điểm
     if (($system_piece_today > 0 && $system_piece_rewarded_today >= $system_piece_today) || ($user_piece_rewarded_today >= $user_piece_today) || !$is_piece) {
-        $point_reward = game_point_per_answer();
-        // Thưởng điểm mặc định 500
-        $reward = [
-            'outcome' => 'POINT',
-            'points_awarded' => $point_reward,
-            'artifact_id' => null,
-            'piece_id' => null
-        ];
+        $reward = game_build_point_reward();
     } else {
-        // Lấy danh sách hiện vật đang mở và chưa hết suất
+        // ===== Bước 1: Lấy danh sách hiện vật, filter theo thời hạn + quota kỳ =====
         $artifacts = $wpdb->get_results(
-            "SELECT id, max_redemptions 
-            FROM {$prefix}artifacts 
-            WHERE status = 1 AND closed = 0"
+            "SELECT * FROM {$prefix}artifacts WHERE status = 1 AND closed = 0"
         );
 
-        if (empty($artifacts)) {  
-            $point_reward = game_point_per_answer();
-            // Nếu không có hiện vật nào, fallback về điểm
-            $reward = [
-                'outcome' => 'POINT',
-                'points_awarded' => $point_reward,
-                'artifact_id' => null,
-                'piece_id' => null
-            ];
+        // Lọc theo thời hạn (quota kỳ KHÔNG chặn rơi mảnh, chỉ chặn hoàn thành bộ)
+        $eligible_artifacts = [];
+        foreach ($artifacts as $art) {
+            // Kiểm tra thời hạn
+            if ( ! game_artifact_is_within_period( $art ) ) {
+                continue;
+            }
+
+            // Kiểm tra hiện vật đã hết tổng lượt đổi chưa
+            if ( ! empty( $art->max_redemptions ) && $art->max_redemptions > 0 ) {
+                $total_redeemed = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$prefix}user_artifact_redemptions WHERE artifact_id = %d",
+                    $art->id
+                ) );
+                if ( $total_redeemed >= (int) $art->max_redemptions ) {
+                    continue; // Hiện vật đã hết lượt đổi hoàn toàn → không rơi mảnh nữa
+                }
+            }
+
+            $eligible_artifacts[] = $art;
+        }
+
+        if (empty($eligible_artifacts)) {
+            // Không có hiện vật nào eligible → fallback điểm
+            $reward = game_build_point_reward();
         } else {
-            // Chọn ngẫu nhiên 1 hiện vật
-            $artifact = $artifacts[array_rand($artifacts)];
-            
-            // Lấy các mảnh của hiện vật này
-            $pieces = $wpdb->get_results($wpdb->prepare(
-                "SELECT id, piece_code, baseline_weight, piece_img
-                FROM {$prefix}pieces 
-                WHERE artifact_id = %d",
-                $artifact->id
-            ));
+            // ===== Bước 2: Xác định chế độ safe-piece =====
+            // Safe-piece kích hoạt khi:
+            //   (a) User đã hoàn thành 1 bộ bất kỳ → chặn bộ thứ 2
+            //   (b) Kỳ hiện tại đã hết quota → chặn hoàn thành thêm
+            $user_already_completed = game_user_has_completed_artifact( $user_id );
 
-            // Tính tổng trọng số
-            $weight_sum = array_sum(array_column($pieces, 'baseline_weight'));
-            
-            // Chọn mảnh dựa trên trọng số
-            $rand = rand(1, $weight_sum);
-            $current_weight = 0;
-            $chosen_piece = null;
-            $chosen_weight = 0;
+            // Build danh sách artifacts bị chặn hoàn thành do quota kỳ
+            $quota_blocked_ids = [];
+            foreach ( $eligible_artifacts as $art ) {
+                $cp = game_artifact_current_period( $art );
+                if ( $cp !== false && ! game_artifact_period_has_quota( $art, $cp ) ) {
+                    $quota_blocked_ids[] = (int) $art->id;
+                }
+            }
 
-            foreach ($pieces as $piece) {
-                $current_weight += $piece->baseline_weight;
-                if ($rand <= $current_weight) {
-                    $chosen_piece = $piece;
-                    $chosen_weight = $piece->baseline_weight;
+            // ===== Bước 3: Check Pity trước khi random =====
+            $pity_piece = null;
+            $pity_artifact = null;
+            foreach ($eligible_artifacts as $art) {
+                // Skip pity nếu user đã có bộ
+                if ( $user_already_completed ) {
+                    continue;
+                }
+                // Skip pity nếu artifact bị chặn bởi quota kỳ
+                if ( in_array( (int) $art->id, $quota_blocked_ids, true ) ) {
+                    continue;
+                }
+
+                $pity_result = game_check_pity( $user_id, $art );
+                if ( $pity_result ) {
+                    $pity_piece = $pity_result;
+                    $pity_artifact = $art;
                     break;
                 }
             }
 
-            $reward = [
-                'outcome' => 'PIECE',
-                'points_awarded' => 0,
-                'artifact_id' => $artifact->id,
-                'piece_id' => $chosen_piece->id,
-                'piece_code' => $chosen_piece->piece_code,
-                'piece_url' => $chosen_piece->piece_img,
-                'weight_sum' => $weight_sum,
-                'chosen_weight' => $chosen_weight
-            ];
+            if ( $pity_piece && $pity_artifact ) {
+                // ===== PITY: Gán mảnh còn thiếu =====
+                $reward = [
+                    'outcome' => 'PIECE',
+                    'points_awarded' => 0,
+                    'artifact_id' => $pity_artifact->id,
+                    'piece_id' => $pity_piece->id,
+                    'piece_code' => $pity_piece->piece_code,
+                    'piece_url' => $pity_piece->piece_img,
+                    'weight_sum' => 0,
+                    'chosen_weight' => 0,
+                    'is_pity' => true
+                ];
+            } else {
+                // ===== Bước 4: Random bình thường =====
+                $artifact = $eligible_artifacts[array_rand($eligible_artifacts)];
+
+                // Lấy các mảnh của hiện vật
+                $pieces = $wpdb->get_results($wpdb->prepare(
+                    "SELECT id, piece_code, baseline_weight, piece_img
+                    FROM {$prefix}pieces 
+                    WHERE artifact_id = %d",
+                    $artifact->id
+                ));
+
+                if (empty($pieces)) {
+                    $reward = game_build_point_reward();
+                } else {
+                    // Cần safe-piece nếu: user đã có bộ HOẶC artifact bị chặn quota kỳ
+                    $need_safe = $user_already_completed
+                              || in_array( (int) $artifact->id, $quota_blocked_ids, true );
+
+                    if ( $need_safe ) {
+                        $chosen_piece = game_pick_safe_piece( $user_id, $artifact->id, $pieces );
+                        if ( ! $chosen_piece ) {
+                            // Không còn mảnh safe → fallback điểm
+                            $reward = game_build_point_reward();
+                        } else {
+                            $weight_sum = array_sum(array_column($pieces, 'baseline_weight'));
+                            $reward = [
+                                'outcome' => 'PIECE',
+                                'points_awarded' => 0,
+                                'artifact_id' => $artifact->id,
+                                'piece_id' => $chosen_piece->id,
+                                'piece_code' => $chosen_piece->piece_code,
+                                'piece_url' => $chosen_piece->piece_img,
+                                'weight_sum' => $weight_sum,
+                                'chosen_weight' => $chosen_piece->baseline_weight
+                            ];
+                        }
+                    } else {
+                        // User chưa có bộ nào + kỳ còn quota → random theo trọng số bình thường
+                        $weight_sum = array_sum(array_column($pieces, 'baseline_weight'));
+                        $rand = rand(1, $weight_sum);
+                        $current_weight = 0;
+                        $chosen_piece = null;
+                        $chosen_weight = 0;
+
+                        foreach ($pieces as $piece) {
+                            $current_weight += $piece->baseline_weight;
+                            if ($rand <= $current_weight) {
+                                $chosen_piece = $piece;
+                                $chosen_weight = $piece->baseline_weight;
+                                break;
+                            }
+                        }
+
+                        $reward = [
+                            'outcome' => 'PIECE',
+                            'points_awarded' => 0,
+                            'artifact_id' => $artifact->id,
+                            'piece_id' => $chosen_piece->id,
+                            'piece_code' => $chosen_piece->piece_code,
+                            'piece_url' => $chosen_piece->piece_img,
+                            'weight_sum' => $weight_sum,
+                            'chosen_weight' => $chosen_weight
+                        ];
+                    }
+                }
+            }
         }
     }
 
-    // Lưu vào drop_logs
+    // ===== Lưu vào drop_logs =====
     $wpdb->insert(
         $prefix . 'drop_logs',
         [
             'user_id' => $user_id,
             'session_id' => $session_id,
             'order_index' => $order_index,
-            'artifact_id' => $reward['artifact_id'],
-            'piece_id' => $reward['piece_id'],
+            'artifact_id' => $reward['artifact_id'] ?? null,
+            'piece_id' => $reward['piece_id'] ?? null,
             'outcome' => $reward['outcome'],
-            'points_awarded' => $reward['points_awarded'],
+            'points_awarded' => $reward['points_awarded'] ?? 0,
             'weight_sum' => $reward['weight_sum'] ?? 0,
             'chosen_weight' => $reward['chosen_weight'] ?? 0,
             'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
@@ -543,9 +623,11 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
         ]
     );
 
-    // Nếu là mảnh, cập nhật user_pieces
+    // ===== Xử lý mảnh =====
+    $is_artifact_complete = false;
+
     if ($reward['outcome'] === 'PIECE') {
-        // Kiểm tra xem user đã có mảnh này chưa
+        // Cập nhật user_pieces
         $existing = $wpdb->get_row($wpdb->prepare(
             "SELECT id, qty FROM {$prefix}user_pieces 
             WHERE user_id = %d AND piece_id = %d",
@@ -553,7 +635,6 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
         ));
 
         if ($existing) {
-            // Cập nhật số lượng
             $wpdb->update(
                 $prefix . 'user_pieces',
                 ['qty' => $existing->qty + 1],
@@ -561,7 +642,6 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
             );
             $user_piece_id = $existing->id;
         } else {
-            // Thêm mới
             $wpdb->insert(
                 $prefix . 'user_pieces',
                 [
@@ -579,11 +659,45 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
             $prefix . 'user_pieces_ledger',
             [
                 'user_piece_id' => $user_piece_id,
-                'ref_type' => 'REWARD',
+                'ref_type' => !empty($reward['is_pity']) ? 'PITY' : 'REWARD',
                 'delta' => 1
             ]
         );
-    }else if ($reward['outcome'] === 'POINT' && $reward['points_awarded'] > 0) {
+
+        // ===== Check hoàn thành bộ → Auto Redeem =====
+        $is_artifact_complete = game_will_complete_artifact( $user_id, $reward['artifact_id'], $reward['piece_id'] );
+
+        if ( $is_artifact_complete ) {
+            // Kiểm tra quota kỳ trước khi auto-redeem
+            $can_redeem = true;
+            $art_obj = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$prefix}artifacts WHERE id = %d",
+                $reward['artifact_id']
+            ) );
+            if ( $art_obj ) {
+                $current_period = game_artifact_current_period( $art_obj );
+                if ( $current_period !== false ) {
+                    if ( ! game_artifact_period_has_quota( $art_obj, $current_period ) ) {
+                        $can_redeem = false; // Kỳ này hết quota → chờ kỳ sau
+                        $is_artifact_complete = false;
+                    }
+                }
+            }
+
+            if ( $can_redeem ) {
+                // Tự động ghi redemption — đánh dấu user đã hoàn thành bộ
+                $wpdb->insert(
+                    $prefix . 'user_artifact_redemptions',
+                    [
+                        'user_id'     => $user_id,
+                        'artifact_id' => $reward['artifact_id'],
+                        'redeemed_at' => game_now(),
+                    ]
+                );
+            }
+        }
+
+    } else if ($reward['outcome'] === 'POINT' && ($reward['points_awarded'] ?? 0) > 0) {
 		// Cập nhật số dư điểm người chơi
 		$wpdb->query($wpdb->prepare(
 			"INSERT INTO {$prefix}user_points_balances (user_id, balance, updated_at)
@@ -609,13 +723,37 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
 		);
 	}
 
+    // ===== Lấy tên hiện vật cho response =====
+    $artifact_name = null;
+    if ( $is_artifact_complete && !empty($reward['artifact_id']) ) {
+        $artifact_name = $wpdb->get_var( $wpdb->prepare(
+            "SELECT name FROM {$prefix}artifacts WHERE id = %d",
+            $reward['artifact_id']
+        ));
+    }
+
     return array(
         'type' => $reward['outcome'],
-        'value' => ($reward['outcome'] === 'POINT') ? $reward['points_awarded'] : $reward['piece_url'],
+        'value' => ($reward['outcome'] === 'POINT') ? ($reward['points_awarded'] ?? 0) : ($reward['piece_url'] ?? ''),
         'text' => ($reward['outcome'] === 'POINT') ? "{$reward['points_awarded']} điểm" : "1x Mảnh ghép hiện vật ID {$reward['piece_id']}",
         'artifact_id' => ($reward['outcome'] === 'PIECE') ? $reward['artifact_id'] : 0,
-        'piece_code' => ($reward['outcome'] === 'PIECE') ? $reward['piece_code'] : ''
+        'piece_code' => ($reward['outcome'] === 'PIECE') ? $reward['piece_code'] : '',
+        'is_artifact_complete' => $is_artifact_complete,
+        'artifact_name' => $artifact_name,
     );
+}
+
+/**
+ * Helper: Tạo reward mặc định là điểm.
+ */
+function game_build_point_reward(): array {
+    $point_reward = game_point_per_answer();
+    return [
+        'outcome' => 'POINT',
+        'points_awarded' => $point_reward,
+        'artifact_id' => null,
+        'piece_id' => null
+    ];
 }
 /**
  *  Helpers lấy phần thưởng của một phiên chơi

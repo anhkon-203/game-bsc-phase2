@@ -134,6 +134,7 @@ require_once GAME_BSC_PLUGIN_DIR . 'includes/install-tables.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/post-type.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/acf-fields.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/templates.php';
+require_once GAME_BSC_PLUGIN_DIR . 'includes/helpers/artifact-period.php';
 
 // REST API JSON response 
 function wg_json_response(int $resCode, $data, string $message = 'success', ?int $http_status = null) {
