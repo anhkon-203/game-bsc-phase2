@@ -108,7 +108,7 @@ function game_bsc_resolve_trend_range($period, $date, $from_date, $to_date, Date
 function game_bsc_resolve_trend_point_mode(DateTimeImmutable $start, DateTimeImmutable $end)
 {
 	$total_days = ((int)$start->diff($end)->days) + 1;
-	if ($total_days < 31) {
+	if ($total_days <= 31) {
 		return 'day';
 	}
 	if ($total_days < 365) {

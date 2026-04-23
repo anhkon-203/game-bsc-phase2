@@ -582,6 +582,12 @@ function game_bsc_get_voucher_categories(WP_REST_Request $request) {
 				continue;
 			}
 
+			$normalized_name = sanitize_title((string) $term->name);
+			$normalized_slug = sanitize_title((string) $term->slug);
+			if (in_array($normalized_name, ['uncategorized', 'chua-phan-loai'], true) || in_array($normalized_slug, ['uncategorized', 'chua-phan-loai'], true)) {
+				continue;
+			}
+
 			$logo_raw = get_term_meta((int) $term->term_id, '_gotit_category_image', true);
 			if ($logo_raw === '' || $logo_raw === null) {
 				$logo_raw = get_term_meta((int) $term->term_id, 'image', true);
@@ -2082,57 +2088,6 @@ function game_bsc_redeem_voucher_internal($user_id, $voucher_post_id) {
 				throw new Exception('Failed to save points ledger: ' . $wpdb->last_error);
 			}
 
-			// ===== BSC FEE VOUCHER: Tạo instance nếu là voucher hoàn phí giao dịch =====
-			$is_fee_voucher = (bool) get_field('is_fee_voucher', $voucher_post_id);
-			$fee_voucher_instance_id = null;
-			$fee_voucher_data = null;
-
-			if ($is_fee_voucher && !$is_third_party_voucher) {
-				$denomination = (int) get_field('fee_voucher_denomination', $voucher_post_id);
-				$validity_days = (int) get_field('fee_voucher_validity_days', $voucher_post_id);
-
-				if ($denomination < 1) {
-					throw new Exception('Fee voucher denomination is not configured.');
-				}
-				if ($validity_days < 1) {
-					$validity_days = 30; // Mặc định 30 ngày
-				}
-
-				$fee_valid_from = $now;
-				$fee_valid_to = date('Y-m-d H:i:s', strtotime($now . ' + ' . $validity_days . ' days'));
-
-				$fee_voucher_insert = $wpdb->insert(
-					$prefix . 'bsc_fee_vouchers',
-					[
-						'user_id'           => $user_id,
-						'redemption_id'     => $redemption_id,
-						'voucher_post_id'   => $voucher_post_id,
-						'denomination'      => $denomination,
-						'remaining_balance' => $denomination,
-						'fee_refund_rate'   => 100.00,
-						'status'            => 'ACTIVE',
-						'valid_from'        => $fee_valid_from,
-						'valid_to'          => $fee_valid_to,
-					],
-					['%d', '%d', '%d', '%d', '%d', '%f', '%s', '%s', '%s']
-				);
-
-				if (!$fee_voucher_insert) {
-					throw new Exception('Failed to create BSC fee voucher instance: ' . $wpdb->last_error);
-				}
-
-				$fee_voucher_instance_id = (int) $wpdb->insert_id;
-				$fee_voucher_data = [
-					'fee_voucher_id'    => $fee_voucher_instance_id,
-					'denomination'      => $denomination,
-					'remaining_balance' => $denomination,
-					'fee_refund_rate'   => 100.00,
-					'valid_from'        => $fee_valid_from,
-					'valid_to'          => $fee_valid_to,
-					'status'            => 'ACTIVE',
-				];
-			}
-
 			$wpdb->query('COMMIT');
 			
 			// Response
@@ -2168,11 +2123,6 @@ function game_bsc_redeem_voucher_internal($user_id, $voucher_post_id) {
 				],
 			];
 
-			// Nếu là voucher hoàn phí → thêm thông tin vào response
-			if ($fee_voucher_data !== null) {
-				$response_data['item']['fee_voucher'] = $fee_voucher_data;
-			}
-			
 			return wg_json_response(200, $response_data, __('Đổi voucher thành công!', WG_GAME_PLUGIN_TEXTDOMAIN));
 			
 		} catch (Exception $e) {
@@ -2541,13 +2491,28 @@ function game_get_my_redemptions(WP_REST_Request $request)
  * ✅ THÊM SỐ LƯỢNG VOUCHER CÙNG LOẠI
  * ✅ SỬ DỤNG get_field() ĐỂ LẤY ACF FIELDS
  *
- * @param int $user_id
+ * Mặc định chỉ lấy voucher nội bộ, loại trừ voucher GOT IT (THIRD_PARTY).
+ *
+ * @param int  $user_id
+ * @param bool $exclude_gotit
  * @return array
  */
-function game_get_user_voucher_redemptions($user_id)
+function game_get_user_voucher_redemptions($user_id, $exclude_gotit = true)
 {
 	global $wpdb;
 	$prefix = $wpdb->prefix . 'game_';
+	$gotit_type_filter_sql = '';
+
+	if ($exclude_gotit) {
+		$gotit_type_filter_sql = "
+			AND EXISTS (
+				SELECT 1
+				FROM {$wpdb->postmeta} pm
+				WHERE pm.post_id = uvr.voucher_post_id
+				  AND pm.meta_key = 'voucher_type'
+				  AND UPPER(TRIM(pm.meta_value)) NOT IN ('THIRD_PARTY', 'THIRD-PARTY')
+			)";
+	}
 	
 	// Lấy danh sách redemptions - GROUP BY voucher_post_id để đếm số lượng
 	$redemptions = $wpdb->get_results(
@@ -2561,6 +2526,7 @@ function game_get_user_voucher_redemptions($user_id)
 			FROM {$prefix}user_voucher_redemptions uvr
 			INNER JOIN {$wpdb->posts} p ON uvr.voucher_post_id = p.ID
 			WHERE uvr.user_id = %d
+			{$gotit_type_filter_sql}
 			GROUP BY uvr.voucher_post_id
 			ORDER BY redeemed_at DESC",
 			$user_id

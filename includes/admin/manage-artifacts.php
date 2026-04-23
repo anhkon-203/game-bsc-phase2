@@ -184,6 +184,9 @@ function game_bsc_manage_artifacts_page() {
                 loading.style.display = '';
                 detailTable.style.display = 'none';
                 tbody.innerHTML = '';
+                
+                // Cuộn mượt xuống panel
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
                 var formData = new FormData();
                 formData.append('action', 'game_bsc_artifact_piece_detail');

@@ -12,6 +12,8 @@ function game_bsc_install_tables() {
 
     $prefix = $wpdb->prefix . 'game_';
 
+	$wpdb->query("DROP TABLE IF EXISTS {$prefix}bsc_fee_voucher_usage_log, {$prefix}bsc_fee_vouchers");
+
     $tables = [];
 
     /* =========================
@@ -391,47 +393,6 @@ function game_bsc_install_tables() {
         KEY idx_user_id (user_id),
         KEY idx_voucher_post_id (voucher_post_id),
         KEY idx_created_at (created_at)
-    ) ENGINE=InnoDB $charset_collate;";
-
-    /* =========================
-       BSC FEE VOUCHERS (Voucher hoàn phí giao dịch)
-    ========================== */
-
-    // Bảng lưu mỗi voucher hoàn phí instance đã đổi
-    $tables[$prefix . 'bsc_fee_vouchers'] = "CREATE TABLE {$prefix}bsc_fee_vouchers (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        user_id INT UNSIGNED NOT NULL,
-        redemption_id INT UNSIGNED NOT NULL,            -- FK → user_voucher_redemptions.id
-        voucher_post_id BIGINT UNSIGNED NOT NULL,       -- FK → WP post
-        denomination INT NOT NULL,                       -- Mệnh giá gốc (20000, 50000, 100000, 200000, 500000)
-        remaining_balance INT NOT NULL,                  -- Số dư khả dụng còn lại
-        fee_refund_rate DECIMAL(5,2) NOT NULL DEFAULT 100.00, -- Tỷ lệ hoàn phí (%)
-        status ENUM('ACTIVE','USED','EXPIRED') NOT NULL DEFAULT 'ACTIVE',
-        valid_from DATETIME NOT NULL,
-        valid_to DATETIME NOT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_user_status (user_id, status),
-        KEY idx_user_valid (user_id, valid_to),
-        KEY idx_redemption (redemption_id)
-    ) ENGINE=InnoDB $charset_collate;";
-
-    // Bảng log sử dụng voucher hoàn phí (khi BSC trading gọi trừ balance)
-    $tables[$prefix . 'bsc_fee_voucher_usage_log'] = "CREATE TABLE {$prefix}bsc_fee_voucher_usage_log (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        voucher_instance_id BIGINT UNSIGNED NOT NULL,   -- FK → bsc_fee_vouchers.id
-        user_id INT UNSIGNED NOT NULL,
-        trade_order_id VARCHAR(128) NOT NULL,            -- Mã lệnh giao dịch (idempotency key)
-        trade_fee_amount INT NOT NULL,                   -- Phí giao dịch gốc
-        refund_amount INT NOT NULL,                      -- Số tiền hoàn (capped by balance)
-        balance_before INT NOT NULL,
-        balance_after INT NOT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY uniq_trade_order (trade_order_id),
-        KEY idx_voucher_instance (voucher_instance_id),
-        KEY idx_user_created (user_id, created_at)
     ) ENGINE=InnoDB $charset_collate;";
 
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');

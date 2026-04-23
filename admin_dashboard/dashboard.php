@@ -230,6 +230,18 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
     </div>
 
     <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.dashboard-date-input').forEach(function(input) {
+                input.addEventListener('click', function(e) {
+                    if (typeof this.showPicker === 'function') {
+                        try {
+                            this.showPicker();
+                        } catch (err) {}
+                    }
+                });
+            });
+        });
+
         function gameBscFormatDateLabel(value) {
             const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
             if (!match) {
@@ -348,10 +360,12 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
 
             $('#chart-filter-tong-quan').on('change', function () {
                 const range = $(this).val();
+                const $dateRange = $(this).closest('.dashboard-filter-controls').find('.dashboard-date-range');
 
                 if (range === 'last_12_months') {
-                    $('#overview-from-date').val('<?php echo esc_js($dashboard_filter_default_from_iso); ?>');
-                    $('#overview-to-date').val('<?php echo esc_js($dashboard_filter_default_to_iso); ?>');
+                    $dateRange.removeClass('is-visible');
+                    $('#overview-from-date').val('');
+                    $('#overview-to-date').val('');
                     gameBscRefreshDateRangeLabels(['overview-from-date', 'overview-to-date']);
                     updateStatistics({
                         range: 'last_12_months',
@@ -362,18 +376,14 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                 }
 
                 if (range === 'custom') {
-                        const fromDate = ($('#overview-from-date').val() || '').trim();
-                        const toDate = ($('#overview-to-date').val() || '').trim();
-                        if (isValidDatePickerValue(fromDate) && isValidDatePickerValue(toDate)) {
-                            updateStatistics({
-                                range: 'custom',
-                                from_date: fromDate,
-                                to_date: toDate
-                            });
-                        }
-                    return;
+                    $dateRange.addClass('is-visible');
+                    $('#overview-from-date').val('');
+                    $('#overview-to-date').val('');
+                    gameBscRefreshDateRangeLabels(['overview-from-date', 'overview-to-date']);
+                    return; // Wait for user to pick dates
                 }
 
+                $dateRange.removeClass('is-visible');
                 updateStatistics({
                     range: range,
                     from_date: '',
@@ -615,10 +625,12 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                     // ===== JQUERY AJAX FILTER =====
                     $('#chart-period-filter').on('change', function () {
                         const period = $(this).val();
+                        const $dateRange = $(this).closest('.dashboard-filter-controls').find('.dashboard-date-range');
 
                         if (period === 'last_12_months') {
-                            $('#trend-from-date').val('<?php echo esc_js($dashboard_filter_default_from_iso); ?>');
-                            $('#trend-to-date').val('<?php echo esc_js($dashboard_filter_default_to_iso); ?>');
+                            $dateRange.removeClass('is-visible');
+                            $('#trend-from-date').val('');
+                            $('#trend-to-date').val('');
                             gameBscRefreshDateRangeLabels(['trend-from-date', 'trend-to-date']);
                             fetchTrends({
                                 period: 'custom',
@@ -629,18 +641,14 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                         }
 
                         if (period === 'custom') {
-                            const fromDate = ($('#trend-from-date').val() || '').trim();
-                            const toDate = ($('#trend-to-date').val() || '').trim();
-                            if (isValidDatePickerValue(fromDate) && isValidDatePickerValue(toDate)) {
-                                fetchTrends({
-                                    period: 'custom',
-                                    from_date: fromDate,
-                                    to_date: toDate
-                                });
-                            }
-                            return;
+                            $dateRange.addClass('is-visible');
+                            $('#trend-from-date').val('');
+                            $('#trend-to-date').val('');
+                            gameBscRefreshDateRangeLabels(['trend-from-date', 'trend-to-date']);
+                            return; // Wait for user to pick dates
                         }
 
+                        $dateRange.removeClass('is-visible');
                         fetchTrends({
                             period: period,
                             from_date: '',
@@ -942,10 +950,12 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                     // ===== JQUERY AJAX FILTER =====
                     $('#chart-award-filter').on('change', function () {
                         const period = $(this).val();
+                        const $dateRange = $(this).closest('.dashboard-filter-controls').find('.dashboard-date-range');
 
                         if (period === 'last_12_months') {
-                            $('#award-from-date').val('<?php echo esc_js($dashboard_filter_default_from_iso); ?>');
-                            $('#award-to-date').val('<?php echo esc_js($dashboard_filter_default_to_iso); ?>');
+                            $dateRange.removeClass('is-visible');
+                            $('#award-from-date').val('');
+                            $('#award-to-date').val('');
                             gameBscRefreshDateRangeLabels(['award-from-date', 'award-to-date']);
                             fetchAwardStatus({
                                 period: 'last_12_months',
@@ -956,18 +966,14 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                         }
 
                         if (period === 'custom') {
-                            const fromDate = ($('#award-from-date').val() || '').trim();
-                            const toDate = ($('#award-to-date').val() || '').trim();
-                            if (isValidDatePickerValue(fromDate) && isValidDatePickerValue(toDate)) {
-                                fetchAwardStatus({
-                                    period: 'custom',
-                                    from_date: fromDate,
-                                    to_date: toDate
-                                });
-                            }
-                            return;
+                            $dateRange.addClass('is-visible');
+                            $('#award-from-date').val('');
+                            $('#award-to-date').val('');
+                            gameBscRefreshDateRangeLabels(['award-from-date', 'award-to-date']);
+                            return; // Wait for user to pick dates
                         }
 
+                        $dateRange.removeClass('is-visible');
                         fetchAwardStatus({
                             period: period,
                             from_date: '',
@@ -1504,24 +1510,26 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                 // Filter change - AJAX call
                 document.getElementById('filterSelect').addEventListener('change', function (e) {
                     const filter = e.target.value;
+                    const dateRange = this.closest('.dashboard-filter-controls').querySelector('.dashboard-date-range');
 
                     if (filter === 'last_12_months') {
-                        document.getElementById('performance-from-date').value = '<?php echo esc_js($dashboard_filter_default_from_iso); ?>';
-                        document.getElementById('performance-to-date').value = '<?php echo esc_js($dashboard_filter_default_to_iso); ?>';
+                        dateRange.classList.remove('is-visible');
+                        document.getElementById('performance-from-date').value = '';
+                        document.getElementById('performance-to-date').value = '';
                         gameBscRefreshDateRangeLabels(['performance-from-date', 'performance-to-date']);
                         fetchDashboardStats('last_12_months', '<?php echo esc_js($dashboard_filter_default_from_iso); ?>', '<?php echo esc_js($dashboard_filter_default_to_iso); ?>');
                         return;
                     }
 
                     if (filter === 'custom') {
-                        const fromDate = (document.getElementById('performance-from-date').value || '').trim();
-                        const toDate = (document.getElementById('performance-to-date').value || '').trim();
-                        if (isValidDatePickerValue(fromDate) && isValidDatePickerValue(toDate)) {
-                            fetchDashboardStats('custom', fromDate, toDate);
-                        }
-                        return;
+                        dateRange.classList.add('is-visible');
+                        document.getElementById('performance-from-date').value = '';
+                        document.getElementById('performance-to-date').value = '';
+                        gameBscRefreshDateRangeLabels(['performance-from-date', 'performance-to-date']);
+                        return; // Wait for user to pick dates
                     }
 
+                    dateRange.classList.remove('is-visible');
                     fetchDashboardStats(filter, '', '');
                 });
 

@@ -57,7 +57,7 @@ function game_bsc_admin_menu() {
 
 
 	add_submenu_page(
-		'game-bsc-main',
+		null,
 		__('Cửa hàng áp dụng', WG_GAME_PLUGIN_TEXTDOMAIN),
 		__('Cửa hàng áp dụng', WG_GAME_PLUGIN_TEXTDOMAIN),
 		'manage_options',

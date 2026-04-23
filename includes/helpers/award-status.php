@@ -518,7 +518,7 @@ function game_bsc_get_award_status($period = 'week', $date = null, $from_date = 
 		$award_end_dt = new DateTimeImmutable($end_date, $tz);
 		$total_days = ((int)$award_start->diff($award_end_dt)->days) + 1;
 
-		if ($total_days >= 31) {
+		if ($total_days > 31) {
 			$data_points = game_bsc_group_award_by_week($daily_points, $award_start, $award_end_dt, $tz);
 		} else {
 			$data_points = $daily_points;
