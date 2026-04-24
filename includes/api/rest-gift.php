@@ -2149,7 +2149,7 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 		// ===== 1. KIỂM TRA ARTIFACT TỒN TẠI =====
 		$artifact = $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT id, name, max_redemptions, status, artifacts_url
+				"SELECT id, name, max_redemptions, status, artifacts_url, closed, period_start, period_end, total_periods, max_redemptions_per_period
 				 FROM {$prefix}artifacts
 				 WHERE id = %d",
 				$artifact_id
@@ -2164,6 +2164,25 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 		// Kiểm tra artifact có đang mở không
 		if ((int)$artifact['status'] !== 1) {
 			return wg_json_response(422, [], __('Hiện vật này hiện không khả dụng để đổi.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		}
+
+		if ((int)$artifact['closed'] === 1) {
+			return wg_json_response(422, [], __('Hiện vật này đã hết suất đổi quà.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		}
+
+		// 1 user chỉ được nhận 1 hiện vật trong toàn chương trình.
+		if (game_user_has_completed_artifact((int) $user_id)) {
+			return wg_json_response(422, [], __('Bạn đã nhận hiện vật trong chương trình, không thể nhận thêm.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		}
+
+		$artifact_obj = (object) $artifact;
+		if (!game_artifact_is_within_period($artifact_obj)) {
+			return wg_json_response(422, [], __('Hiện vật này đang ngoài thời gian diễn ra.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		}
+
+		$current_period = game_artifact_current_period($artifact_obj);
+		if ($current_period !== false && !game_artifact_period_has_quota($artifact_obj, $current_period)) {
+			return wg_json_response(422, [], __('Hiện vật đã hết quota trong kỳ hiện tại.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
 		
 		// ===== 2. LẤY DANH SÁCH MẢNH CỦA ARTIFACT =====
@@ -2282,7 +2301,7 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 			}
 			
 			
-			if (($times_redeemed + 1) === $max_redemptions) {
+			if (($times_redeemed + 1) >= $max_redemptions) {
 				$artifact_close = $wpdb->query(
 					$wpdb->prepare(
 						"UPDATE {$prefix}artifacts
@@ -2291,10 +2310,10 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 						$artifact_id
 					)
 				);
-			}
-			
-			if($artifact_close == false){
-				throw new Exception('Failed to close artifact: ' . $wpdb->last_error);
+
+				if ($artifact_close === false) {
+					throw new Exception('Failed to close artifact: ' . $wpdb->last_error);
+				}
 			}
 
 			

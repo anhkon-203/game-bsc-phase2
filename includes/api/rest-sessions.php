@@ -460,11 +460,17 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
             "SELECT * FROM {$prefix}artifacts WHERE status = 1 AND closed = 0"
         );
 
-        // Lọc theo thời hạn (quota kỳ KHÔNG chặn rơi mảnh, chỉ chặn hoàn thành bộ)
+        // Lọc theo thời hạn + quota kỳ + tổng lượt đổi
         $eligible_artifacts = [];
         foreach ($artifacts as $art) {
             // Kiểm tra thời hạn
             if ( ! game_artifact_is_within_period( $art ) ) {
+                continue;
+            }
+
+            // Kỳ hiện tại đã hết quota thì không rơi mảnh cho hiện vật này
+            $cp = game_artifact_current_period( $art );
+            if ( $cp !== false && ! game_artifact_period_has_quota( $art, $cp ) ) {
                 continue;
             }
 
@@ -487,19 +493,8 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
             $reward = game_build_point_reward();
         } else {
             // ===== Bước 2: Xác định chế độ safe-piece =====
-            // Safe-piece kích hoạt khi:
-            //   (a) User đã hoàn thành 1 bộ bất kỳ → chặn bộ thứ 2
-            //   (b) Kỳ hiện tại đã hết quota → chặn hoàn thành thêm
+            // Safe-piece kích hoạt khi user đã hoàn thành 1 bộ bất kỳ → chặn bộ thứ 2.
             $user_already_completed = game_user_has_completed_artifact( $user_id );
-
-            // Build danh sách artifacts bị chặn hoàn thành do quota kỳ
-            $quota_blocked_ids = [];
-            foreach ( $eligible_artifacts as $art ) {
-                $cp = game_artifact_current_period( $art );
-                if ( $cp !== false && ! game_artifact_period_has_quota( $art, $cp ) ) {
-                    $quota_blocked_ids[] = (int) $art->id;
-                }
-            }
 
             // ===== Bước 3: Check Pity trước khi random =====
             $pity_piece = null;
@@ -507,10 +502,6 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
             foreach ($eligible_artifacts as $art) {
                 // Skip pity nếu user đã có bộ
                 if ( $user_already_completed ) {
-                    continue;
-                }
-                // Skip pity nếu artifact bị chặn bởi quota kỳ
-                if ( in_array( (int) $art->id, $quota_blocked_ids, true ) ) {
                     continue;
                 }
 
@@ -550,9 +541,8 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
                 if (empty($pieces)) {
                     $reward = game_build_point_reward();
                 } else {
-                    // Cần safe-piece nếu: user đã có bộ HOẶC artifact bị chặn quota kỳ
-                    $need_safe = $user_already_completed
-                              || in_array( (int) $artifact->id, $quota_blocked_ids, true );
+                    // Cần safe-piece nếu user đã có bộ.
+                    $need_safe = $user_already_completed;
 
                     if ( $need_safe ) {
                         $chosen_piece = game_pick_safe_piece( $user_id, $artifact->id, $pieces );
@@ -668,32 +658,86 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
         $is_artifact_complete = game_will_complete_artifact( $user_id, $reward['artifact_id'], $reward['piece_id'] );
 
         if ( $is_artifact_complete ) {
-            // Kiểm tra quota kỳ trước khi auto-redeem
-            $can_redeem = true;
-            $art_obj = $wpdb->get_row( $wpdb->prepare(
-                "SELECT * FROM {$prefix}artifacts WHERE id = %d",
-                $reward['artifact_id']
-            ) );
-            if ( $art_obj ) {
-                $current_period = game_artifact_current_period( $art_obj );
-                if ( $current_period !== false ) {
-                    if ( ! game_artifact_period_has_quota( $art_obj, $current_period ) ) {
-                        $can_redeem = false; // Kỳ này hết quota → chờ kỳ sau
-                        $is_artifact_complete = false;
+            // Kiểm tra user đã nhận hiện vật trong đợt game hiện tại chưa
+            // (phòng race condition hoặc edge case)
+            if ( game_user_has_completed_artifact( $user_id ) ) {
+                $is_artifact_complete = false;
+            } else {
+                // Kiểm tra quota kỳ trước khi auto-redeem
+                $can_redeem = true;
+                $art_obj = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT * FROM {$prefix}artifacts WHERE id = %d",
+                    $reward['artifact_id']
+                ) );
+                if ( $art_obj ) {
+                    $current_period = game_artifact_current_period( $art_obj );
+                    if ( $current_period !== false ) {
+                        if ( ! game_artifact_period_has_quota( $art_obj, $current_period ) ) {
+                            $can_redeem = false; // Kỳ này hết quota → chờ kỳ sau
+                            $is_artifact_complete = false;
+                        }
                     }
                 }
-            }
 
-            if ( $can_redeem ) {
-                // Tự động ghi redemption — đánh dấu user đã hoàn thành bộ
-                $wpdb->insert(
-                    $prefix . 'user_artifact_redemptions',
-                    [
-                        'user_id'     => $user_id,
-                        'artifact_id' => $reward['artifact_id'],
-                        'redeemed_at' => game_now(),
-                    ]
-                );
+                if ( $can_redeem ) {
+                    // ===== AUTO-REDEEM: Trừ mảnh + ghi redemption =====
+                    $artifact_id_redeem = $reward['artifact_id'];
+
+                    // Lấy tất cả mảnh user đang có của artifact này (qty >= 1)
+                    $user_pieces_for_redeem = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT up.id AS user_piece_id, up.piece_id, up.qty, p.piece_code
+                         FROM {$prefix}user_pieces up
+                         INNER JOIN {$prefix}pieces p ON up.piece_id = p.id
+                         WHERE up.user_id = %d AND up.artifact_id = %d AND up.qty >= 1
+                         ORDER BY p.piece_code ASC",
+                        $user_id, $artifact_id_redeem
+                    ) );
+
+                    $redeem_ok = true;
+
+                    // Trừ 1 qty cho mỗi mảnh + log ledger
+                    foreach ( $user_pieces_for_redeem as $rp ) {
+                        $wpdb->query( $wpdb->prepare(
+                            "UPDATE {$prefix}user_pieces SET qty = qty - 1 WHERE id = %d AND qty >= 1",
+                            $rp->user_piece_id
+                        ) );
+
+                        $wpdb->insert(
+                            $prefix . 'user_pieces_ledger',
+                            [
+                                'user_piece_id' => $rp->user_piece_id,
+                                'ref_type'      => 'AUTO_REDEEM',
+                                'delta'         => -1,
+                                'created_at'    => game_now(),
+                            ]
+                        );
+                    }
+
+                    // Ghi redemption
+                    $wpdb->insert(
+                        $prefix . 'user_artifact_redemptions',
+                        [
+                            'user_id'     => $user_id,
+                            'artifact_id' => $artifact_id_redeem,
+                            'redeemed_at' => game_now(),
+                        ]
+                    );
+
+                    // Kiểm tra đóng artifact nếu đạt max_redemptions
+                    if ( $art_obj && ! empty( $art_obj->max_redemptions ) && $art_obj->max_redemptions > 0 ) {
+                        $total_redeemed_now = (int) $wpdb->get_var( $wpdb->prepare(
+                            "SELECT COUNT(*) FROM {$prefix}user_artifact_redemptions WHERE artifact_id = %d",
+                            $artifact_id_redeem
+                        ) );
+                        if ( $total_redeemed_now >= (int) $art_obj->max_redemptions ) {
+                            $wpdb->update(
+                                $prefix . 'artifacts',
+                                [ 'closed' => 1 ],
+                                [ 'id' => $artifact_id_redeem ]
+                            );
+                        }
+                    }
+                }
             }
         }
 
@@ -1572,7 +1616,26 @@ function game_api_session_result(WP_REST_Request $r)
 
     // Chặng hiện tại
     $current_stage = game_bsc_compute_day_index_v2($uid);
-    
+
+    // ===== Kiểm tra trúng hiện vật trong phiên chơi này =====
+    $t_redemptions = game_tbl('user_artifact_redemptions');
+    $t_artifacts   = game_tbl('artifacts');
+
+    // Tìm redemption được tạo trong khoảng thời gian phiên chơi
+    // (auto-redeem xảy ra ngay khi trả lời đúng, nên redeemed_at nằm trong started_at → finished_at)
+    $artifact_won = $wpdb->get_row( $wpdb->prepare(
+        "SELECT r.artifact_id, r.redeemed_at, a.name AS artifact_name, a.artifacts_url
+         FROM $t_redemptions r
+         INNER JOIN $t_artifacts a ON a.id = r.artifact_id
+         WHERE r.user_id = %d
+           AND r.redeemed_at >= %s
+           AND r.redeemed_at <= %s
+         ORDER BY r.redeemed_at DESC
+         LIMIT 1",
+        $uid,
+        $sess->started_at,
+        $sess->finished_at
+    ) );
 
     $resp = [
         'session' => [
@@ -1585,7 +1648,13 @@ function game_api_session_result(WP_REST_Request $r)
             'total_pieces' => $total_pieces,
             'current_stage' => $current_stage['day_index'],
             'status' => (int)$sess->current_stage_status,
-        ]
+        ],
+        'artifact_won' => $artifact_won ? [
+            'artifact_id'   => (int) $artifact_won->artifact_id,
+            'artifact_name' => $artifact_won->artifact_name,
+            'artifacts_url' => $artifact_won->artifacts_url,
+            'redeemed_at'   => $artifact_won->redeemed_at,
+        ] : null,
     ];
 
     return wg_json_response(200, $resp, __('Lấy kết quả phiên chơi thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));

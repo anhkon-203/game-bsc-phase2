@@ -207,6 +207,149 @@ function game_bsc_assign_default_voucher_category($post_id, $post, $update) {
 }
 add_action('save_post_game_vouchers', 'game_bsc_assign_default_voucher_category', 20, 3);
 
+/**
+ * Chuẩn hóa giá trị voucher_type.
+ */
+function game_bsc_normalize_voucher_type($value) {
+    return strtoupper(str_replace('-', '_', trim((string) $value)));
+}
+
+/**
+ * Bộ lọc nhanh loại voucher ở trang danh sách game_vouchers.
+ */
+function game_bsc_render_voucher_type_admin_filter($post_type, $which) {
+    if ($post_type !== 'game_vouchers' || $which !== 'top') {
+        return;
+    }
+
+    $current = sanitize_key((string) ($_GET['game_bsc_voucher_type'] ?? 'all'));
+    ?>
+    <select name="game_bsc_voucher_type" id="game-bsc-voucher-type-filter">
+        <option value="all" <?php selected($current, 'all'); ?>>Tất cả loại voucher</option>
+        <option value="bsc" <?php selected($current, 'bsc'); ?>>Voucher tại BSC</option>
+        <option value="third_party" <?php selected($current, 'third_party'); ?>>Voucher bên thứ 3</option>
+    </select>
+    <?php
+}
+add_action('restrict_manage_posts', 'game_bsc_render_voucher_type_admin_filter', 10, 2);
+
+/**
+ * Áp điều kiện truy vấn theo bộ lọc loại voucher ở list page.
+ */
+function game_bsc_apply_voucher_type_admin_filter($query) {
+    if (!is_admin() || !$query instanceof WP_Query || !$query->is_main_query()) {
+        return;
+    }
+
+    global $pagenow;
+    if ($pagenow !== 'edit.php') {
+        return;
+    }
+
+    $post_type = sanitize_key((string) ($query->get('post_type') ?: ($_GET['post_type'] ?? '')));
+    if ($post_type !== 'game_vouchers') {
+        return;
+    }
+
+    $filter = sanitize_key((string) ($_GET['game_bsc_voucher_type'] ?? 'all'));
+    if ($filter !== 'bsc' && $filter !== 'third_party') {
+        return;
+    }
+
+    $meta_query = $query->get('meta_query');
+    if (!is_array($meta_query)) {
+        $meta_query = [];
+    }
+
+    if ($filter === 'third_party') {
+        $meta_query[] = [
+            'key' => 'voucher_type',
+            'value' => ['THIRD_PARTY', 'THIRD-PARTY', 'THIRT_PARTY'],
+            'compare' => 'IN',
+        ];
+    } else {
+        $meta_query[] = [
+            'relation' => 'OR',
+            [
+                'key' => 'voucher_type',
+                'compare' => 'NOT EXISTS',
+            ],
+            [
+                'key' => 'voucher_type',
+                'value' => '',
+                'compare' => '=',
+            ],
+            [
+                'key' => 'voucher_type',
+                'value' => 'BSC',
+                'compare' => '=',
+            ],
+        ];
+    }
+
+    $query->set('meta_query', $meta_query);
+}
+add_action('pre_get_posts', 'game_bsc_apply_voucher_type_admin_filter');
+
+/**
+ * Chỉ hiển thị metabox "Danh mục voucher" khi voucher_type là THIRD_PARTY.
+ */
+function game_bsc_toggle_voucher_category_metabox_on_edit_screen() {
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if (!$screen || $screen->base !== 'post' || $screen->post_type !== 'game_vouchers') {
+        return;
+    }
+    ?>
+    <script>
+        (function() {
+            function normalizeVoucherType(value) {
+                return String(value || '').trim().toUpperCase().replace(/-/g, '_');
+            }
+
+            function getCurrentVoucherType() {
+                var checked = document.querySelector('.acf-field[data-key="field_voucher_type"] input[type="radio"]:checked');
+                if (checked) {
+                    return normalizeVoucherType(checked.value);
+                }
+
+                var fallback = document.querySelector('input[name*="[voucher_type]"][type="radio"]:checked');
+                return fallback ? normalizeVoucherType(fallback.value) : '';
+            }
+
+            var categoryBox = document.getElementById('game_voucher_categorydiv') || document.getElementById('tagsdiv-game_voucher_category');
+            if (!categoryBox) {
+                return;
+            }
+
+            function updateCategoryBoxVisibility() {
+                var shouldShow = getCurrentVoucherType() === 'THIRD_PARTY';
+                categoryBox.style.display = shouldShow ? '' : 'none';
+            }
+
+            document.addEventListener('change', function(event) {
+                var target = event.target;
+                if (!target || target.type !== 'radio') {
+                    return;
+                }
+
+                if (target.closest('.acf-field[data-key="field_voucher_type"]') || (target.name && target.name.indexOf('[voucher_type]') !== -1)) {
+                    updateCategoryBoxVisibility();
+                }
+            });
+
+            if (window.acf && typeof window.acf.addAction === 'function') {
+                window.acf.addAction('ready', updateCategoryBoxVisibility);
+                window.acf.addAction('append', updateCategoryBoxVisibility);
+            }
+
+            updateCategoryBoxVisibility();
+        })();
+    </script>
+    <?php
+}
+add_action('admin_footer-post.php', 'game_bsc_toggle_voucher_category_metabox_on_edit_screen');
+add_action('admin_footer-post-new.php', 'game_bsc_toggle_voucher_category_metabox_on_edit_screen');
+
 
 
 // new phan quyen

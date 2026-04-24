@@ -441,7 +441,7 @@ function game_bsc_get_award_status($period = 'week', $date = null, $from_date = 
 			],
 		];
 
-		// ===== 5) DATA POINTS (business day only) =====
+		// ===== 5) DATA POINTS (all days) =====
 		$daily_points = [];
 		if ($period !== 'day') {
 			$current = new DateTimeImmutable($start_date, $tz);
@@ -497,17 +497,14 @@ function game_bsc_get_award_status($period = 'week', $date = null, $from_date = 
 					}
 				}
 
-				$dayOfWeek = $current->format('w'); // 0=Sunday, 6=Saturday
-				if ($dayOfWeek !== '0' && $dayOfWeek !== '6') {
-					$day_awarded = (int)($voucher_awarded_day_total[$check_date] ?? 0) + (int)($artifact_awarded_day_total[$check_date] ?? 0);
-					$day_not_awarded = max(0, $total_voucher_remaining_running + $total_artifact_remaining_running);
+				$day_awarded = (int)($voucher_awarded_day_total[$check_date] ?? 0) + (int)($artifact_awarded_day_total[$check_date] ?? 0);
+				$day_not_awarded = max(0, $total_voucher_remaining_running + $total_artifact_remaining_running);
 
-					$daily_points[] = [
-						'date' => $check_date,
-						'awarded' => $day_awarded,
-						'not_awarded' => $day_not_awarded,
-					];
-				}
+				$daily_points[] = [
+					'date' => $check_date,
+					'awarded' => $day_awarded,
+					'not_awarded' => $day_not_awarded,
+				];
 
 				$current = $current->modify('+1 day');
 			}
@@ -518,7 +515,7 @@ function game_bsc_get_award_status($period = 'week', $date = null, $from_date = 
 		$award_end_dt = new DateTimeImmutable($end_date, $tz);
 		$total_days = ((int)$award_start->diff($award_end_dt)->days) + 1;
 
-		if ($total_days > 31) {
+		if ($total_days > 32) {
 			$data_points = game_bsc_group_award_by_week($daily_points, $award_start, $award_end_dt, $tz);
 		} else {
 			$data_points = $daily_points;

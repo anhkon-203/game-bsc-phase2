@@ -138,18 +138,40 @@ function game_artifact_period_has_quota( object $artifact, int $period_index ): 
 // =====================================================================
 
 /**
- * Kiểm tra xem user đã hoàn thành (redeem) 1 bộ hiện vật trong toàn chương trình chưa.
+ * Kiểm tra xem user đã hoàn thành (redeem) 1 bộ hiện vật trong đợt game hiện tại chưa.
+ *
+ * Chỉ đếm redemption nằm trong khoảng game_bsc_start_date → game_bsc_end_date.
+ * Nếu redemption cũ thuộc đợt game trước (ngoài khoảng ngày hiện tại) → bỏ qua,
+ * cho phép user nhận hiện vật mới trong đợt game mới.
  *
  * @param int $user_id
- * @return bool  true = đã có 1 bộ hoàn chỉnh
+ * @return bool  true = đã có 1 bộ hoàn chỉnh trong đợt game hiện tại
  */
 function game_user_has_completed_artifact( int $user_id ): bool {
     global $wpdb;
     $table = $wpdb->prefix . 'game_user_artifact_redemptions';
 
+    $start_date = get_option( 'game_bsc_start_date', '' );
+    $end_date   = get_option( 'game_bsc_end_date', '' );
+
+    // Nếu chưa cấu hình ngày game → fallback check toàn bộ (an toàn)
+    if ( empty( $start_date ) || empty( $end_date ) ) {
+        $count = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE user_id = %d",
+            $user_id
+        ) );
+        return $count > 0;
+    }
+
+    // Chỉ đếm redemption trong khoảng đợt game hiện tại
     $count = (int) $wpdb->get_var( $wpdb->prepare(
-        "SELECT COUNT(*) FROM {$table} WHERE user_id = %d",
-        $user_id
+        "SELECT COUNT(*) FROM {$table}
+         WHERE user_id = %d
+           AND redeemed_at >= %s
+           AND redeemed_at < %s",
+        $user_id,
+        $start_date . ' 00:00:00',
+        $end_date . ' 23:59:59'
     ) );
 
     return $count > 0;

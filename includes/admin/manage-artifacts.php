@@ -325,7 +325,7 @@ function game_bsc_manage_artifacts_page() {
                     <th>Số lượt đổi tối đa</th>
                     <td>
                         <input type="number" name="artifacts[${index}][max_redemptions]" min="1" value="1">
-                        <p class="description">Mỗi kỳ tối đa 1 bộ. VD: 4 lượt đổi + 30 ngày → 4 kỳ, mỗi kỳ ~7 ngày.</p>
+                        <p class="description">Tổng số quà hiện vật có thể trao trong toàn bộ chương trình. Số kỳ tung quà sẽ tự động bằng giá trị này.</p>
                     </td>
                 </tr>
                 <tr>
@@ -333,7 +333,7 @@ function game_bsc_manage_artifacts_page() {
                     <td>
                         <label>Từ ngày: <input type="datetime-local" name="artifacts[${index}][period_start]" style="margin-right:12px;"></label>
                         <label>Đến ngày: <input type="datetime-local" name="artifacts[${index}][period_end]"></label>
-                        <p class="description">Để trống nếu không giới hạn thời gian. Số kỳ tung quà = Số lượt đổi tối đa.</p>
+                        <p class="description">Để trống nếu không giới hạn thời gian. Hết quota kỳ thì hiện vật sẽ không rơi mảnh trong kỳ đó.</p>
                     </td>
                 </tr>
                 <tr>
@@ -610,11 +610,12 @@ function game_bsc_handle_save_artifact() {
             $status          = (int)($artifact['status'] ?? 0);
             $status          = ($status === 1) ? 1 : 0;
 
-            // -------- Thời hạn & Kỳ (tự động: số kỳ = max_redemptions, mỗi kỳ tối đa 1 bộ) ----------
+            // -------- Thời hạn & Kỳ ----------
             $period_start_raw = sanitize_text_field($artifact['period_start'] ?? '');
             $period_end_raw   = sanitize_text_field($artifact['period_end'] ?? '');
-            $total_periods    = max(1, $max_redemptions); // Số kỳ = Số lượt đổi tối đa
-            $max_per_period   = 1; // Luôn tối đa 1 hiện vật/kỳ
+            // Auto-calculate total_periods = max_redemptions (each period gets 1 artifact)
+            $total_periods    = max(1, $max_redemptions);
+            $max_per_period   = 1; // Always 1 artifact per period
 
             // Chuyển datetime-local (Y-m-d\TH:i) → MySQL datetime (Y-m-d H:i:s)
             $period_start = !empty($period_start_raw) ? str_replace('T', ' ', $period_start_raw) . ':00' : null;
@@ -682,6 +683,10 @@ function game_bsc_handle_save_artifact() {
 
             if($max_redemptions <= 0) {
                 throw new Exception(__('Số lượt đổi tối đa phải lớn hơn 0.', WG_GAME_PLUGIN_TEXTDOMAIN));
+            }
+
+            if($total_periods <= 0) {
+                throw new Exception(__('Số kỳ tung quà phải lớn hơn 0.', WG_GAME_PLUGIN_TEXTDOMAIN));
             }
 
             // Validate tổng baseline_weight của 4 mảnh
@@ -977,7 +982,6 @@ function game_bsc_render_artifact_fieldset_prefilled($index, $artifact, $pieces)
     // Format datetime cho input datetime-local (Y-m-d\TH:i)
     $period_start_val = !empty($artifact->period_start) ? date('Y-m-d\TH:i', strtotime($artifact->period_start)) : '';
     $period_end_val   = !empty($artifact->period_end) ? date('Y-m-d\TH:i', strtotime($artifact->period_end)) : '';
-    $total_periods_val = (int)($artifact->total_periods ?? 1);
     $max_per_period_val = (int)($artifact->max_redemptions_per_period ?? 0);
     ?>
     <fieldset class="artifact-fieldset" data-index="<?php echo (int)$index; ?>" style="border:1px solid #ccc;margin-bottom:16px;padding:10px;position:relative;">
@@ -993,14 +997,17 @@ function game_bsc_render_artifact_fieldset_prefilled($index, $artifact, $pieces)
             </tr>
             <tr>
                 <th>Số lượt đổi tối đa</th>
-                <td><input type="number" name="artifacts[<?php echo (int)$index; ?>][max_redemptions]" min="1" value="<?php echo (int)$artifact->max_redemptions; ?>"></td>
+                <td>
+                    <input type="number" name="artifacts[<?php echo (int)$index; ?>][max_redemptions]" min="1" value="<?php echo (int)$artifact->max_redemptions; ?>">
+                    <p class="description">Số kỳ tung quà được hệ thống tự tính theo số lượt đổi tối đa, không cần nhập tay.</p>
+                </td>
             </tr>
             <tr>
                 <th>Thời hạn hiện vật</th>
                 <td>
                     <label>Từ ngày: <input type="datetime-local" name="artifacts[<?php echo (int)$index; ?>][period_start]" value="<?php echo esc_attr($period_start_val); ?>" style="margin-right:12px;"></label>
                     <label>Đến ngày: <input type="datetime-local" name="artifacts[<?php echo (int)$index; ?>][period_end]" value="<?php echo esc_attr($period_end_val); ?>"></label>
-                    <p class="description">Để trống nếu không giới hạn thời gian. Số kỳ tung quà = Số lượt đổi tối đa (<?php echo (int)$artifact->max_redemptions; ?> kỳ), mỗi kỳ tối đa 1 bộ.</p>
+                    <p class="description">Để trống nếu không giới hạn thời gian. Hết quota kỳ thì hiện vật sẽ không rơi mảnh trong kỳ đó.</p>
                 </td>
             </tr>
             <tr>

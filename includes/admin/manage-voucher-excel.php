@@ -538,14 +538,22 @@ if (!function_exists('game_bsc_voucher_excel_render_tools')) {
         $import_nonce = wp_create_nonce('game_bsc_import_vouchers_excel');
         ?>
         <div id="game-bsc-voucher-excel-tools" class="game-bsc-voucher-excel-tools" style="display:none;">
+            <div class="game-bsc-voucher-excel-tools__header">
+                <div>
+                    <p class="game-bsc-voucher-excel-tools__eyebrow">THIRD_PARTY CSV TOOLS</p>
+                    <h2 class="game-bsc-voucher-excel-tools__title">Quản lý file voucher quà tặng</h2>
+                </div>
+                <span class="game-bsc-voucher-excel-tools__scope">Chỉ áp dụng cho voucher quà tặng (THIRD_PARTY)</span>
+            </div>
+
             <div class="game-bsc-voucher-excel-tools__row">
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex; align-items:center; gap:8px; margin:0;">
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="game-bsc-voucher-excel-tools__form game-bsc-voucher-excel-tools__form--export">
                     <input type="hidden" name="action" value="game_bsc_export_vouchers_excel" />
                     <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($export_nonce); ?>" />
                     <button type="submit" class="button button-secondary game-bsc-voucher-excel-tools__btn-secondary"><?php echo esc_html($export_button_text); ?></button>
                 </form>
 
-                <form method="post" enctype="multipart/form-data" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0;">
+                <form method="post" enctype="multipart/form-data" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="game-bsc-voucher-excel-tools__form game-bsc-voucher-excel-tools__form--import">
                     <input type="hidden" name="action" value="game_bsc_import_vouchers_excel" />
                     <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($import_nonce); ?>" />
                     <input class="game-bsc-voucher-excel-tools__file" type="file" name="voucher_points_file" accept="<?php echo esc_attr($import_accept); ?>" required />
@@ -556,10 +564,10 @@ if (!function_exists('game_bsc_voucher_excel_render_tools')) {
                     <button type="submit" class="button button-primary game-bsc-voucher-excel-tools__btn-primary"><?php echo esc_html($import_button_text); ?></button>
                 </form>
             </div>
-            <p style="margin:8px 0 0; color:#50575e;">
+            <p class="game-bsc-voucher-excel-tools__note">
                 Chỉ chỉnh cột <strong>points_cost</strong>. Khuyến nghị chạy thử trước khi áp dụng.
             </p>
-            <p style="margin:4px 0 0; color:#50575e;">
+            <p class="game-bsc-voucher-excel-tools__note game-bsc-voucher-excel-tools__note--secondary">
                 Lưu ý: không đổi tên cột header, không xóa dòng header.
             </p>
             <?php if (false): ?>
@@ -591,17 +599,60 @@ if (!function_exists('game_bsc_voucher_excel_render_tools')) {
         <style>
             .game-bsc-voucher-excel-tools {
                 margin: 12px 0 0;
-                padding: 12px;
+                padding: 14px;
                 border: 1px solid #dcdcde;
-                background: #fff;
-                border-radius: 8px;
-                box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+                border-radius: 10px;
+                background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+                box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+            }
+            .game-bsc-voucher-excel-tools__header {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 12px;
+            }
+            .game-bsc-voucher-excel-tools__eyebrow {
+                margin: 0 0 4px;
+                color: #3858a6;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+            }
+            .game-bsc-voucher-excel-tools__title {
+                margin: 0;
+                font-size: 18px;
+                line-height: 1.3;
+            }
+            .game-bsc-voucher-excel-tools__scope {
+                display: inline-flex;
+                align-items: center;
+                min-height: 30px;
+                padding: 0 12px;
+                border-radius: 999px;
+                border: 1px solid #ffd8a8;
+                background: #fff7ed;
+                color: #9a3412;
+                font-size: 12px;
+                font-weight: 600;
             }
             .game-bsc-voucher-excel-tools__row {
                 display: flex;
                 flex-wrap: wrap;
                 gap: 10px 12px;
                 align-items: center;
+            }
+            .game-bsc-voucher-excel-tools__form {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 8px;
+                margin: 0;
+                padding: 8px;
+                border: 1px solid #d0d7e2;
+                border-radius: 8px;
+                background: #ffffff;
             }
             .game-bsc-voucher-excel-tools__file {
                 max-width: 260px;
@@ -612,6 +663,14 @@ if (!function_exists('game_bsc_voucher_excel_render_tools')) {
             .game-bsc-voucher-excel-tools__btn-secondary,
             .game-bsc-voucher-excel-tools__btn-primary {
                 min-height: 32px;
+            }
+            .game-bsc-voucher-excel-tools__note {
+                margin: 8px 0 0;
+                color: #334155;
+            }
+            .game-bsc-voucher-excel-tools__note--secondary {
+                margin-top: 4px;
+                color: #50575e;
             }
             .game-bsc-voucher-excel-result {
                 margin-top: 12px;
@@ -636,6 +695,16 @@ if (!function_exists('game_bsc_voucher_excel_render_tools')) {
             .game-bsc-voucher-excel-result__errors ul {
                 margin: 0 0 0 18px;
                 list-style: disc;
+            }
+            @media (max-width: 900px) {
+                .game-bsc-voucher-excel-tools__form {
+                    width: 100%;
+                }
+                .game-bsc-voucher-excel-tools__file,
+                .game-bsc-voucher-excel-tools__select {
+                    width: 100%;
+                    max-width: none;
+                }
             }
         </style>
         <script>
@@ -1360,9 +1429,6 @@ if (!function_exists('game_bsc_handle_import_vouchers_excel')) {
             ];
 
             game_bsc_voucher_excel_log_history($file_name, $file_url, get_current_user_id(), $report);
-            if (file_exists($file_path)) {
-                @unlink($file_path);
-            }
 
             game_bsc_redirect_voucher_excel_report($report, 'error');
         } finally {
@@ -1371,9 +1437,7 @@ if (!function_exists('game_bsc_handle_import_vouchers_excel')) {
             }
         }
 
-        if (file_exists($file_path)) {
-            @unlink($file_path);
-        }
+        // Keep uploaded file for audit/history so file_url in import history remains valid.
 
         if (function_exists('game_bsc_log_settings_change')) {
             game_bsc_log_settings_change(

@@ -101,7 +101,7 @@ function game_bsc_resolve_trend_range($period, $date, $from_date, $to_date, Date
 
 /**
  * Quy tac hien thi bieu do theo khoang ngay.
- * - <31 ngay: theo ngay
+ * - <=31 ngay: theo ngay
  * - >1 thang den <12 thang: theo tuan (ngay cuoi tuan)
  * - Con lai: theo thang de tranh qua nhieu cot
  */

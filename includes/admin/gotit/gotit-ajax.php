@@ -1635,6 +1635,9 @@ function game_bsc_gotit_voucher_list_sync_button() {
             var nonce = '<?php echo esc_js($nonce); ?>';
 
             var $select   = $(<?php echo wp_json_encode($select_html); ?>);
+            var $scopeNote = $(
+                '<span class="game-bsc-gotit-scope-note">Chỉ áp dụng cho voucher quà tặng (THIRD_PARTY)</span>'
+            );
             var $btnVoucher = $(
                 '<button type="button" id="game-bsc-gotit-sync-btn" class="button button-primary" style="margin-left:6px;">' +
                 '<span class="dashicons dashicons-update" style="vertical-align:middle;margin-right:4px;"></span>' +
@@ -1656,7 +1659,17 @@ function game_bsc_gotit_voucher_list_sync_button() {
             var $status = $('<span id="game-bsc-gotit-sync-status" style="margin-left:10px;font-style:italic;"></span>');
 
             var $toolbar = $('<div id="game-bsc-gotit-toolbar"></div>');
-            $toolbar.append($select, $btnVoucher, $btnStop, $btnCat, $status);
+            var $toolbarHeader = $('<div class="game-bsc-gotit-toolbar__header"></div>');
+            var $toolbarControls = $('<div class="game-bsc-gotit-toolbar__controls"></div>');
+            var $toolbarStatus = $('<div class="game-bsc-gotit-toolbar__status"></div>');
+
+            $toolbarHeader.append(
+                $('<div class="game-bsc-gotit-toolbar__title-wrap"><span class="game-bsc-gotit-toolbar__eyebrow">GOT IT SYNC</span><strong class="game-bsc-gotit-toolbar__title">Đồng bộ dữ liệu voucher</strong></div>'),
+                $scopeNote
+            );
+            $toolbarControls.append($select, $btnVoucher, $btnStop, $btnCat);
+            $toolbarStatus.append($status);
+            $toolbar.append($toolbarHeader, $toolbarControls, $toolbarStatus);
 
             var $addNewBtn = $('.wrap .page-title-action').first();
             if ($addNewBtn.length) {
@@ -1897,15 +1910,54 @@ function game_bsc_gotit_voucher_list_sync_button() {
         .dashicons.spin { display:inline-block; animation: spin 1s linear infinite; }
         #game-bsc-gotit-toolbar {
             display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+            margin: 10px 0 0;
+            padding: 12px;
+            border: 1px solid #dcdcde;
+            border-radius: 10px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+        }
+        .game-bsc-gotit-toolbar__header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .game-bsc-gotit-toolbar__eyebrow {
+            display: block;
+            color: #3858a6;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .game-bsc-gotit-toolbar__title {
+            font-size: 16px;
+        }
+        .game-bsc-gotit-toolbar__controls {
+            display: flex;
             flex-wrap: wrap;
             align-items: center;
             gap: 8px;
-            margin: 10px 0 0;
-            padding: 10px;
-            border: 1px solid #dcdcde;
-            border-radius: 8px;
-            background: #fff;
-            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+        }
+        .game-bsc-gotit-scope-note {
+            display: inline-flex;
+            align-items: center;
+            min-height: 30px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid #ffd8a8;
+            background: #fff7ed;
+            color: #9a3412;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .game-bsc-gotit-toolbar__status {
+            min-height: 20px;
         }
         #game-bsc-gotit-cat-select {
             margin-left: 0 !important;
@@ -1913,11 +1965,19 @@ function game_bsc_gotit_voucher_list_sync_button() {
             height: 32px;
         }
         #game-bsc-gotit-sync-status {
-            margin-left: 4px !important;
+            margin-left: 0 !important;
             min-height: 20px;
         }
         .wrap .page-title-action {
             margin-top: 10px;
+        }
+        @media (max-width: 900px) {
+            .game-bsc-gotit-toolbar__controls > * {
+                width: 100%;
+            }
+            #game-bsc-gotit-cat-select {
+                width: 100%;
+            }
         }
     </style>
     <?php

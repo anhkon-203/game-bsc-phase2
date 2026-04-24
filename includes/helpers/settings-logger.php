@@ -784,6 +784,249 @@ function game_bsc_get_dashboard_logs_with_search($paged = 1, $per_page = 10, $se
 }
 
 /**
+ * Lấy lịch sử upload/import điểm voucher từ bảng wp_game_voucher_points_import_history.
+ */
+function game_bsc_get_voucher_excel_history_data($paged = 1, $per_page = 10, $search_query = '', $mode = 'all')
+{
+	global $wpdb;
+
+	$history_table = $wpdb->prefix . 'game_voucher_points_import_history';
+	$search_query = sanitize_text_field(trim((string) $search_query));
+	$mode = sanitize_key((string) $mode);
+	$paged = max(1, (int) $paged);
+	$per_page = max(1, (int) $per_page);
+	$offset = ($paged - 1) * $per_page;
+
+	$where_clauses = ['1=1'];
+	$params = [];
+
+	if ($mode === 'apply' || $mode === 'dry-run') {
+		$where_clauses[] = 'ih.mode = %s';
+		$params[] = $mode;
+	}
+
+	if ($search_query !== '') {
+		$search_like = '%' . $wpdb->esc_like($search_query) . '%';
+		$where_clauses[] = '(ih.file_name LIKE %s OR u.display_name LIKE %s OR u.user_email LIKE %s OR CAST(ih.file_author AS CHAR) = %s)';
+		$params[] = $search_like;
+		$params[] = $search_like;
+		$params[] = $search_like;
+		$params[] = $search_query;
+	}
+
+	$where_sql = implode(' AND ', $where_clauses);
+
+	if (empty($params)) {
+		$total = (int) $wpdb->get_var(
+			"SELECT COUNT(*)
+			 FROM {$history_table} ih
+			 LEFT JOIN {$wpdb->users} u ON ih.file_author = u.ID
+			 WHERE {$where_sql}"
+		);
+	} else {
+		$total = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*)
+				 FROM {$history_table} ih
+				 LEFT JOIN {$wpdb->users} u ON ih.file_author = u.ID
+				 WHERE {$where_sql}",
+				...$params
+			)
+		);
+	}
+
+	$query_params = array_merge($params, [$per_page, $offset]);
+	$rows = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT ih.*, u.display_name, u.user_email, u.user_login
+			 FROM {$history_table} ih
+			 LEFT JOIN {$wpdb->users} u ON ih.file_author = u.ID
+			 WHERE {$where_sql}
+			 ORDER BY ih.uploaded_at DESC, ih.id DESC
+			 LIMIT %d OFFSET %d",
+			...$query_params
+		),
+		ARRAY_A
+	);
+
+	$formatted_rows = [];
+	foreach ((array) $rows as $row) {
+		$summary_data = [];
+		if (!empty($row['summary_json'])) {
+			$decoded = json_decode((string) $row['summary_json'], true);
+			if (is_array($decoded)) {
+				$summary_data = $decoded;
+			}
+		}
+
+		$user_name = !empty($row['display_name']) ? (string) $row['display_name'] : ((string) ($row['user_login'] ?? 'N/A'));
+		$user_email = (string) ($row['user_email'] ?? 'N/A');
+		$uploaded_at = (string) ($row['uploaded_at'] ?? '');
+
+		$formatted_rows[] = [
+			'id' => (int) ($row['id'] ?? 0),
+			'file_name' => (string) ($row['file_name'] ?? ''),
+			'file_url' => (string) ($row['file_url'] ?? ''),
+			'file_author' => (int) ($row['file_author'] ?? 0),
+			'user_name' => sanitize_text_field($user_name),
+			'user_email' => sanitize_email($user_email),
+			'mode' => (string) ($row['mode'] ?? 'dry-run'),
+			'mode_label' => ((string) ($row['mode'] ?? '') === 'apply') ? 'Áp dụng' : 'Chạy thử',
+			'total_rows' => (int) ($row['total_rows'] ?? 0),
+			'updated_rows' => (int) ($row['updated_rows'] ?? 0),
+			'skipped_rows' => (int) ($row['skipped_rows'] ?? 0),
+			'conflict_rows' => (int) ($row['conflict_rows'] ?? 0),
+			'error_rows' => (int) ($row['error_rows'] ?? 0),
+			'summary_data' => $summary_data,
+			'uploaded_at' => $uploaded_at,
+			'uploaded_at_formatted' => $uploaded_at !== '' ? (new DateTime($uploaded_at, TIMEZONE))->format('d/m/Y H:i') : 'N/A',
+		];
+	}
+
+	$total_pages = max(1, (int) ceil($total / $per_page));
+
+	return [
+		'rows' => $formatted_rows,
+		'total' => $total,
+		'paged' => $paged,
+		'per_page' => $per_page,
+		'total_pages' => $total_pages,
+		'search_query' => $search_query,
+		'mode' => $mode,
+	];
+}
+
+/**
+ * Trích xuất payload gọn từ log import/export voucher excel.
+ */
+function game_bsc_format_voucher_excel_log_payload($new_value)
+{
+	$payload = maybe_unserialize($new_value);
+	if (!is_array($payload)) {
+		return is_scalar($payload) ? (string) $payload : '';
+	}
+
+	$keys = [
+		'mode',
+		'file_ext',
+		'total_rows',
+		'updated_rows',
+		'error_rows',
+		'status',
+		'xlsx_supported',
+		'triggered_at',
+	];
+
+	$compact = [];
+	foreach ($keys as $key) {
+		if (array_key_exists($key, $payload)) {
+			$compact[$key] = $payload[$key];
+		}
+	}
+
+	if (empty($compact)) {
+		$compact = $payload;
+	}
+
+	return wp_json_encode($compact, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+}
+
+/**
+ * Lấy log liên quan đến import/export voucher excel trong settings_logs.
+ */
+function game_bsc_get_voucher_excel_related_logs($paged = 1, $per_page = 10, $search_query = '')
+{
+	global $wpdb;
+	$prefix = $wpdb->prefix . 'game_';
+
+	$search_query = sanitize_text_field(trim((string) $search_query));
+	$paged = max(1, (int) $paged);
+	$per_page = max(1, (int) $per_page);
+	$offset = ($paged - 1) * $per_page;
+
+	$where_clauses = [
+		"sl.setting_key IN ('game_bsc_voucher_excel_import', 'game_bsc_voucher_excel_export')",
+	];
+	$params = [];
+
+	if ($search_query !== '') {
+		$search_like = '%' . $wpdb->esc_like($search_query) . '%';
+		$where_clauses[] = '(u.display_name LIKE %s OR u.user_email LIKE %s OR CAST(sl.user_id AS CHAR) = %s)';
+		$params[] = $search_like;
+		$params[] = $search_like;
+		$params[] = $search_query;
+	}
+
+	$where_sql = implode(' AND ', $where_clauses);
+
+	if (empty($params)) {
+		$total = (int) $wpdb->get_var(
+			"SELECT COUNT(*)
+			 FROM {$prefix}settings_logs sl
+			 LEFT JOIN {$wpdb->users} u ON sl.user_id = u.ID
+			 WHERE {$where_sql}"
+		);
+	} else {
+		$total = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*)
+				 FROM {$prefix}settings_logs sl
+				 LEFT JOIN {$wpdb->users} u ON sl.user_id = u.ID
+				 WHERE {$where_sql}",
+				...$params
+			)
+		);
+	}
+
+	$query_params = array_merge($params, [$per_page, $offset]);
+	$rows = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT sl.*, u.display_name, u.user_email, u.user_login
+			 FROM {$prefix}settings_logs sl
+			 LEFT JOIN {$wpdb->users} u ON sl.user_id = u.ID
+			 WHERE {$where_sql}
+			 ORDER BY sl.created_at DESC, sl.id DESC
+			 LIMIT %d OFFSET %d",
+			...$query_params
+		),
+		ARRAY_A
+	);
+
+	$formatted_rows = [];
+	foreach ((array) $rows as $row) {
+		$user_name = !empty($row['display_name']) ? (string) $row['display_name'] : ((string) ($row['user_login'] ?? 'N/A'));
+		$user_email = (string) ($row['user_email'] ?? 'N/A');
+		$created_at = (string) ($row['created_at'] ?? '');
+
+		$formatted_rows[] = [
+			'id' => (int) ($row['id'] ?? 0),
+			'user_id' => (int) ($row['user_id'] ?? 0),
+			'user_name' => sanitize_text_field($user_name),
+			'user_email' => sanitize_email($user_email),
+			'setting_key' => (string) ($row['setting_key'] ?? ''),
+			'setting_label' => game_bsc_get_setting_label((string) ($row['setting_key'] ?? '')),
+			'action' => strtoupper((string) ($row['action'] ?? 'update')),
+			'action_label' => game_bsc_get_action_label((string) ($row['action'] ?? 'update')),
+			'payload' => game_bsc_format_voucher_excel_log_payload($row['new_value'] ?? ''),
+			'ip_address' => (string) ($row['ip_address'] ?? ''),
+			'created_at' => $created_at,
+			'created_at_formatted' => $created_at !== '' ? (new DateTime($created_at, TIMEZONE))->format('d/m/Y H:i') : 'N/A',
+		];
+	}
+
+	$total_pages = max(1, (int) ceil($total / $per_page));
+
+	return [
+		'rows' => $formatted_rows,
+		'total' => $total,
+		'paged' => $paged,
+		'per_page' => $per_page,
+		'total_pages' => $total_pages,
+		'search_query' => $search_query,
+	];
+}
+
+/**
  * Get label cho action
  */
 function game_bsc_get_action_label($action)
