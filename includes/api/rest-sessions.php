@@ -767,24 +767,21 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
 		);
 	}
 
-    // ===== Lấy tên hiện vật cho response =====
-    $artifact_name = null;
-    if ( $is_artifact_complete && !empty($reward['artifact_id']) ) {
-        $artifact_name = $wpdb->get_var( $wpdb->prepare(
-            "SELECT name FROM {$prefix}artifacts WHERE id = %d",
-            $reward['artifact_id']
-        ));
-    }
-
-    return array(
+    $response_data = array(
         'type' => $reward['outcome'],
         'value' => ($reward['outcome'] === 'POINT') ? ($reward['points_awarded'] ?? 0) : ($reward['piece_url'] ?? ''),
         'text' => ($reward['outcome'] === 'POINT') ? "{$reward['points_awarded']} điểm" : "1x Mảnh ghép hiện vật ID {$reward['piece_id']}",
         'artifact_id' => ($reward['outcome'] === 'PIECE') ? $reward['artifact_id'] : 0,
         'piece_code' => ($reward['outcome'] === 'PIECE') ? $reward['piece_code'] : '',
         'is_artifact_complete' => $is_artifact_complete,
-        'artifact_name' => $artifact_name,
     );
+
+    if ($is_artifact_complete && isset($art_obj)) {
+        $response_data['artifact_name'] = $art_obj->name;
+        $response_data['artifacts_url'] = $art_obj->artifacts_url;
+    }
+
+    return $response_data;
 }
 
 /**
@@ -1620,21 +1617,25 @@ function game_api_session_result(WP_REST_Request $r)
     // ===== Kiểm tra trúng hiện vật trong phiên chơi này =====
     $t_redemptions = game_tbl('user_artifact_redemptions');
     $t_artifacts   = game_tbl('artifacts');
+    $t_drop        = game_tbl('drop_logs');
 
-    // Tìm redemption được tạo trong khoảng thời gian phiên chơi
-    // (auto-redeem xảy ra ngay khi trả lời đúng, nên redeemed_at nằm trong started_at → finished_at)
+    // Tìm artifact_won thông qua drop_logs:
+    //   1. Lấy artifact_id có mảnh rơi trong session này
+    //   2. Join với redemptions để xem artifact đó đã auto-redeem chưa
+    // Cách này chính xác hơn so sánh thời gian (redeemed_at có thể lệch vài giây so với finished_at)
     $artifact_won = $wpdb->get_row( $wpdb->prepare(
         "SELECT r.artifact_id, r.redeemed_at, a.name AS artifact_name, a.artifacts_url
-         FROM $t_redemptions r
+         FROM $t_drop d
+         INNER JOIN $t_redemptions r
+            ON r.user_id = d.user_id AND r.artifact_id = d.artifact_id
          INNER JOIN $t_artifacts a ON a.id = r.artifact_id
-         WHERE r.user_id = %d
-           AND r.redeemed_at >= %s
-           AND r.redeemed_at <= %s
+         WHERE d.session_id = %d
+           AND d.user_id = %d
+           AND d.outcome = 'PIECE'
          ORDER BY r.redeemed_at DESC
          LIMIT 1",
-        $uid,
-        $sess->started_at,
-        $sess->finished_at
+        $sid,
+        $uid
     ) );
 
     $resp = [

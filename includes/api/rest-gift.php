@@ -467,13 +467,6 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 		}
 	}
 
-	// Biến tổng hợp kết quả đồng bộ.
-	$result_items = [];
-	$matched_items = 0;
-	$unmatched_items = 0;
-	$updated_posts = [];
-	$updated_fields = 0;
-
 	// Duyệt từng item API:
 	// - map voucherid -> voucher_code
 	// - lọc theo custodycd nếu có
@@ -498,22 +491,11 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 		$prinpaid = $normalize_registered_voucher_amount($item['prinpaid'] ?? 0);
 
 		$post_ids = $voucher_map[$voucher_code] ?? [];
-		$item_updated_fields = [];
 
 		if (empty($post_ids)) {
 			// Không có voucher nội bộ tương ứng voucherid từ API.
-			$unmatched_items++;
-			$result_items[] = [
-				'voucherid' => $voucher_code,
-				'prinpaid' => $prinpaid,
-				'voucher_post_ids' => [],
-				'matched' => false,
-				'updated_fields' => [],
-			];
 			continue;
 		}
-
-		$matched_items++;
 
 		// Một voucher_code có thể map nhiều post_id, cập nhật tất cả bản ghi match.
 		foreach ($post_ids as $post_id) {
@@ -521,38 +503,12 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 
 			if ($registered_voucher_value_changed($current_prinpaid, $prinpaid)) {
 				update_post_meta($post_id, 'prinpaid', $prinpaid);
-				$item_updated_fields[] = [
-					'post_id' => $post_id,
-					'field' => 'prinpaid',
-					'old' => $current_prinpaid,
-					'new' => $prinpaid,
-				];
-				$updated_fields++;
-				$updated_posts[$post_id] = true;
 			}
-
 		}
-
-		$result_items[] = [
-			'voucherid' => $voucher_code,
-			'prinpaid' => $prinpaid,
-			'voucher_post_ids' => array_values($post_ids),
-			'matched' => true,
-			'updated_fields' => $item_updated_fields,
-		];
 	}
 
-	// Trả về summary để FE/BE dễ theo dõi mức độ đồng bộ và số bản ghi đã cập nhật.
-	return wg_json_response(200, [
-		'summary' => [
-			'api_items' => count($result_items),
-			'matched_items' => $matched_items,
-			'unmatched_items' => $unmatched_items,
-			'updated_posts' => count($updated_posts),
-			'updated_fields' => $updated_fields,
-		],
-		'items' => $result_items,
-	], __('Lấy danh sách voucher đã đăng ký và đồng bộ field thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	// Endpoint chỉ sync dữ liệu nội bộ, không thao tác trên giao diện — trả về true.
+	return wg_json_response(200, true);
 }
 
 /**
@@ -1007,12 +963,6 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 			];
 
 			if ($is_bsc_voucher) {
-				$voucheramt = $normalize_bsc_amount(get_post_meta($post_id, 'voucheramt', true));
-				$prinpaid = $normalize_bsc_amount(get_post_meta($post_id, 'prinpaid', true));
-
-				$voucher_item['voucheramt'] = $voucheramt;
-				$voucher_item['prinpaid'] = $prinpaid;
-
 				// Điều kiện và điều khoản (wysiwyg field riêng cho BSC)
 				$bsc_terms_raw = get_field('bsc_voucher_terms', $post_id);
 				$voucher_item['terms'] = wp_kses_post((string) ($bsc_terms_raw ?: ''));
@@ -2569,6 +2519,8 @@ function game_get_user_voucher_redemptions($user_id, $exclude_gotit = true)
 		$voucher_code = sanitize_text_field(get_field('voucher_code', $voucher_id) ?? 'N/A');
 		$voucher_type = sanitize_text_field(get_field('voucher_type', $voucher_id) ?? 'BSC');
 		$points_cost = (int)(get_field('points_cost', $voucher_id) ?? 0);
+		$voucheramt = (float) (get_post_meta($voucher_id, 'voucheramt', true) ?: 0);
+		$prinpaid = (float) (get_post_meta($voucher_id, 'prinpaid', true) ?: 0);
 		$redeemed_banner_id = (get_field('redeemed_banner_image', $voucher_id) ?? '');
 		$redeemed_banner_image_url = '';
 		if ($redeemed_banner_id){
@@ -2617,6 +2569,8 @@ function game_get_user_voucher_redemptions($user_id, $exclude_gotit = true)
 			'voucher_name' => sanitize_text_field($redemption['voucher_name']),
 			'redeemed_banner_image_url' => esc_url($redeemed_banner_image_url),
 			'voucher_type' => $voucher_type,
+			'voucheramt' => $voucheramt,
+			'prinpaid' => $prinpaid,
 			'partner_name' => $partner_name,
 			'partner_url' => $partner_url,
 			'partner_logo_url' => esc_url($partner_logo_url),
