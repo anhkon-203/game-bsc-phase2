@@ -439,6 +439,7 @@ function game_clear_used_questions($sid): void {
 function game_get_random_reward($user_id, $session_id, $order_index) {
     global $wpdb;
     $prefix = $wpdb->prefix . 'game_';
+    $pity_lock_name = null;
 
     // ===== Bước 0: Các limit hệ thống (giữ nguyên logic cũ) =====
     $system_piece_today = (int)get_option('game_bsc_max_drop_pieces_per_day', 0);
@@ -455,22 +456,17 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
     if (($system_piece_today > 0 && $system_piece_rewarded_today >= $system_piece_today) || ($user_piece_rewarded_today >= $user_piece_today) || !$is_piece) {
         $reward = game_build_point_reward();
     } else {
-        // ===== Bước 1: Lấy danh sách hiện vật, filter theo thời hạn + quota kỳ =====
+        // ===== Bước 1: Lấy danh sách hiện vật, filter theo thời hạn + tổng lượt đổi =====
         $artifacts = $wpdb->get_results(
             "SELECT * FROM {$prefix}artifacts WHERE status = 1 AND closed = 0"
         );
 
-        // Lọc theo thời hạn + quota kỳ + tổng lượt đổi
+        // Lọc theo thời hạn + tổng lượt đổi.
+        // Không loại artifact khi kỳ đã hết quota, vì vẫn cần rơi mảnh safe (không complete).
         $eligible_artifacts = [];
         foreach ($artifacts as $art) {
             // Kiểm tra thời hạn
             if ( ! game_artifact_is_within_period( $art ) ) {
-                continue;
-            }
-
-            // Kỳ hiện tại đã hết quota thì không rơi mảnh cho hiện vật này
-            $cp = game_artifact_current_period( $art );
-            if ( $cp !== false && ! game_artifact_period_has_quota( $art, $cp ) ) {
                 continue;
             }
 
@@ -505,8 +501,31 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
                     continue;
                 }
 
+                $current_period = game_artifact_current_period( $art );
+                $period_has_quota = ( $current_period === false ) ? true : game_artifact_period_has_quota( $art, $current_period );
+                if ( ! $period_has_quota ) {
+                    continue;
+                }
+
                 $pity_result = game_check_pity( $user_id, $art );
                 if ( $pity_result ) {
+                    if ( $current_period !== false ) {
+                        $lock_name = sprintf( 'game_pity_art_%d_period_%d', (int) $art->id, (int) $current_period );
+
+                        // Cạnh tranh thời điểm: request nào vào vùng lock trước sẽ có quyền pity.
+                        if ( ! game_acquire_lock( $lock_name, 1 ) ) {
+                            continue;
+                        }
+
+                        // Re-check sau lock để tránh race condition vượt quota kỳ.
+                        if ( ! game_artifact_period_has_quota( $art, $current_period ) ) {
+                            game_release_lock( $lock_name );
+                            continue;
+                        }
+
+                        $pity_lock_name = $lock_name;
+                    }
+
                     $pity_piece = $pity_result;
                     $pity_artifact = $art;
                     break;
@@ -515,6 +534,7 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
 
             if ( $pity_piece && $pity_artifact ) {
                 // ===== PITY: Gán mảnh còn thiếu =====
+                $pity_period_index = game_artifact_current_period( $pity_artifact );
                 $reward = [
                     'outcome' => 'PIECE',
                     'points_awarded' => 0,
@@ -524,11 +544,16 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
                     'piece_url' => $pity_piece->piece_img,
                     'weight_sum' => 0,
                     'chosen_weight' => 0,
-                    'is_pity' => true
+                    'is_pity' => true,
+                    'period_index' => $pity_period_index
                 ];
             } else {
                 // ===== Bước 4: Random bình thường =====
                 $artifact = $eligible_artifacts[array_rand($eligible_artifacts)];
+                $artifact_period_index = game_artifact_current_period( $artifact );
+                $artifact_period_has_quota = ( $artifact_period_index === false )
+                    ? true
+                    : game_artifact_period_has_quota( $artifact, $artifact_period_index );
 
                 // Lấy các mảnh của hiện vật
                 $pieces = $wpdb->get_results($wpdb->prepare(
@@ -541,8 +566,28 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
                 if (empty($pieces)) {
                     $reward = game_build_point_reward();
                 } else {
-                    // Cần safe-piece nếu user đã có bộ.
-                    $need_safe = $user_already_completed;
+                    // Cần safe-piece trong 3 trường hợp:
+                    // 1) user đã có bộ ở đợt game hiện tại,
+                    // 2) kỳ của artifact đã hết quota,
+                    // 3) user có 3 mảnh nhưng thua cạnh tranh lock pity ở cùng thời điểm.
+                    $need_safe = $user_already_completed || ! $artifact_period_has_quota;
+
+                    if ( ! $need_safe && ! $user_already_completed ) {
+                        $pity_candidate = game_check_pity( $user_id, $artifact );
+                        if ( $pity_candidate && $artifact_period_index !== false ) {
+                            $lock_name = sprintf( 'game_pity_art_%d_period_%d', (int) $artifact->id, (int) $artifact_period_index );
+                            if ( ! game_acquire_lock( $lock_name, 1 ) ) {
+                                $need_safe = true;
+                            } else {
+                                if ( ! game_artifact_period_has_quota( $artifact, $artifact_period_index ) ) {
+                                    game_release_lock( $lock_name );
+                                    $need_safe = true;
+                                } else {
+                                    $pity_lock_name = $lock_name;
+                                }
+                            }
+                        }
+                    }
 
                     if ( $need_safe ) {
                         $chosen_piece = game_pick_safe_piece( $user_id, $artifact->id, $pieces );
@@ -559,7 +604,8 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
                                 'piece_code' => $chosen_piece->piece_code,
                                 'piece_url' => $chosen_piece->piece_img,
                                 'weight_sum' => $weight_sum,
-                                'chosen_weight' => $chosen_piece->baseline_weight
+                                'chosen_weight' => $chosen_piece->baseline_weight,
+                                'period_index' => $artifact_period_index
                             ];
                         }
                     } else {
@@ -587,7 +633,8 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
                             'piece_code' => $chosen_piece->piece_code,
                             'piece_url' => $chosen_piece->piece_img,
                             'weight_sum' => $weight_sum,
-                            'chosen_weight' => $chosen_weight
+                            'chosen_weight' => $chosen_weight,
+                            'period_index' => $artifact_period_index
                         ];
                     }
                 }
@@ -682,6 +729,7 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
                 if ( $can_redeem ) {
                     // ===== AUTO-REDEEM: Trừ mảnh + ghi redemption =====
                     $artifact_id_redeem = $reward['artifact_id'];
+                    $redeem_period_index = isset( $reward['period_index'] ) ? $reward['period_index'] : game_artifact_current_period( $art_obj );
 
                     // Lấy tất cả mảnh user đang có của artifact này (qty >= 1)
                     $user_pieces_for_redeem = $wpdb->get_results( $wpdb->prepare(
@@ -779,6 +827,10 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
     if ($is_artifact_complete && isset($art_obj)) {
         $response_data['artifact_name'] = $art_obj->name;
         $response_data['artifacts_url'] = $art_obj->artifacts_url;
+    }
+
+    if ( ! empty( $pity_lock_name ) ) {
+        game_release_lock( $pity_lock_name );
     }
 
     return $response_data;

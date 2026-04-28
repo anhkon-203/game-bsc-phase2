@@ -166,17 +166,6 @@ function game_bsc_install_tables() {
     //     KEY date_idx (counter_date)
     // ) ENGINE=InnoDB $charset_collate;";
 
-    // Bảng Pity/Smart-drop theo user-artifact
-    $tables[$prefix . 'user_progress'] = "CREATE TABLE {$prefix}user_progress (
-        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        user_id INT UNSIGNED NOT NULL,
-        artifact_id INT UNSIGNED NOT NULL,
-        attempts INT NOT NULL DEFAULT 0, -- Số lần trả lời đúng (dùng để tính pity)
-        last_piece_at DATETIME NULL, -- Thời gian nhận mảnh gần nhất
-        PRIMARY KEY (id),
-        UNIQUE KEY user_artifact_uk (user_id, artifact_id)
-    ) ENGINE=InnoDB $charset_collate;";
-
     // Log đổi hiện vật
     $tables[$prefix . 'user_artifact_redemptions'] = "CREATE TABLE {$prefix}user_artifact_redemptions (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -378,13 +367,7 @@ function game_bsc_install_tables() {
         gotit_voucher_image TEXT NULL,
         gotit_serial VARCHAR(255) NULL,
         gotit_expiry_date DATETIME NULL,
-        gotit_partner_expiry_date DATETIME NULL,
-        gotit_vendor_name VARCHAR(255) NULL,
-        gotit_is_partner_code TINYINT NOT NULL DEFAULT 0,
         gotit_status TINYINT NOT NULL DEFAULT 0,
-        gotit_raw_response LONGTEXT NULL,
-        gotit_status_code INT NOT NULL DEFAULT 0,
-        gotit_error_message TEXT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -402,6 +385,32 @@ function game_bsc_install_tables() {
             dbDelta($sql);
         // }
     }
+    // For existing installs, remove legacy/debug-only gotit columns we no longer keep.
+    $gotit_table = $wpdb->prefix . 'game_gotit_transactions';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $gotit_table)) === $gotit_table) {
+        $legacy_columns = [
+            'gotit_partner_expiry_date',
+            'gotit_vendor_name',
+            'gotit_is_partner_code',
+            'gotit_raw_response',
+            'gotit_status_code',
+            'gotit_error_message',
+        ];
+
+        foreach ($legacy_columns as $col) {
+            $exists = $wpdb->get_var("SHOW COLUMNS FROM {$gotit_table} LIKE '{$col}'");
+            if ($exists === $col) {
+                $wpdb->query("ALTER TABLE {$gotit_table} DROP COLUMN {$col}");
+            }
+        }
+    }
+    
+    // Drop unused game_user_progress table if it exists (never populated in codebase).
+    $unused_user_progress_table = $wpdb->prefix . 'game_user_progress';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $unused_user_progress_table)) === $unused_user_progress_table) {
+        $wpdb->query("DROP TABLE {$unused_user_progress_table}");
+    }
+    
     // Lưu phiên bản schema hiện tại để lần sau còn so sánh
     update_option('wg_game_db_version', WG_GAME_PLUGIN_DB_VERSION, false);
 }

@@ -248,6 +248,7 @@ Lấy thông tin voucher đã issue theo transaction ref, gồm cả trạng th�
         "logo_url": "https://img-stg.gotit.vn/compress/brand/2021/10/1634550062_cMQ1q.png"
       }
     },
+    "barcode": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLi4u",
     "expiry_date": "2026-05-07 00:00:00",
     "terms_and_conditions": {
       "terms": "<p>- Phiếu quà tặng điện tử được cung cấp bởi Got It...</p>",
@@ -262,6 +263,7 @@ Lấy thông tin voucher đã issue theo transaction ref, gồm cả trạng th�
 ### Giải thích từng trường response
 - `data.transaction_ref_id`: mã giao dịch issue voucher.
 - `data.voucher_info`: thông tin voucher đã phát hành.
+- `data.barcode`: barcode chuẩn Code 128, sinh từ `voucher_code` để hiển thị/scan.
 - `data.expiry_date`: hạn sử dụng voucher.
 - `data.terms_and_conditions`: điều khoản và hướng dẫn sử dụng.
 - `data.is_used`: trạng thái đã sử dụng hay chưa.

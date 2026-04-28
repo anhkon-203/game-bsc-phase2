@@ -1401,6 +1401,244 @@ function game_bsc_gotit_payload_has_used_state($payload) {
 }
 
 /**
+ * Lấy danh sách cửa hàng áp dụng của voucher từ post meta Got It.
+ *
+ * @param int $voucher_id
+ * @return array
+ */
+function game_bsc_get_voucher_applicable_stores($voucher_id) {
+	$stores_json = (string) get_post_meta($voucher_id, '_game_bsc_gotit_applicable_stores_json', true);
+	$stores_list = json_decode($stores_json, true);
+	if (!is_array($stores_list)) {
+		$stores_list = [];
+	}
+
+	$applicable_stores = [];
+	foreach ($stores_list as $store_item) {
+		if (is_array($store_item) && isset($store_item['raw']) && is_array($store_item['raw'])) {
+			$applicable_stores[] = $store_item['raw'];
+		}
+	}
+
+	return array_values($applicable_stores);
+}
+
+/**
+ * Trả về bảng pattern Code 128 chuẩn dùng để dựng barcode SVG.
+ *
+ * @return array<int, string>
+ */
+function game_bsc_get_code128_patterns() {
+	static $patterns = null;
+
+	if ($patterns !== null) {
+		return $patterns;
+	}
+
+	$patterns = [
+		0 => '212222',
+		1 => '222122',
+		2 => '222221',
+		3 => '121223',
+		4 => '121322',
+		5 => '131222',
+		6 => '122213',
+		7 => '122312',
+		8 => '132212',
+		9 => '221213',
+		10 => '221312',
+		11 => '231212',
+		12 => '112232',
+		13 => '122132',
+		14 => '122231',
+		15 => '113222',
+		16 => '123122',
+		17 => '123221',
+		18 => '223211',
+		19 => '221132',
+		20 => '221231',
+		21 => '213212',
+		22 => '223112',
+		23 => '312131',
+		24 => '311222',
+		25 => '321122',
+		26 => '321221',
+		27 => '312212',
+		28 => '322112',
+		29 => '322211',
+		30 => '212123',
+		31 => '212321',
+		32 => '232121',
+		33 => '111323',
+		34 => '131123',
+		35 => '131321',
+		36 => '112313',
+		37 => '132113',
+		38 => '132311',
+		39 => '211313',
+		40 => '231113',
+		41 => '231311',
+		42 => '112133',
+		43 => '112331',
+		44 => '132131',
+		45 => '113123',
+		46 => '113321',
+		47 => '133121',
+		48 => '313121',
+		49 => '211331',
+		50 => '231131',
+		51 => '213113',
+		52 => '213311',
+		53 => '213131',
+		54 => '311123',
+		55 => '311321',
+		56 => '331121',
+		57 => '312113',
+		58 => '312311',
+		59 => '332111',
+		60 => '314111',
+		61 => '221411',
+		62 => '431111',
+		63 => '111224',
+		64 => '111422',
+		65 => '121124',
+		66 => '121421',
+		67 => '141122',
+		68 => '141221',
+		69 => '112214',
+		70 => '112412',
+		71 => '122114',
+		72 => '122411',
+		73 => '142112',
+		74 => '142211',
+		75 => '241211',
+		76 => '221114',
+		77 => '413111',
+		78 => '241112',
+		79 => '134111',
+		80 => '111242',
+		81 => '121142',
+		82 => '121241',
+		83 => '114212',
+		84 => '124112',
+		85 => '124211',
+		86 => '411212',
+		87 => '421112',
+		88 => '421211',
+		89 => '212141',
+		90 => '214121',
+		91 => '412121',
+		92 => '111143',
+		93 => '111341',
+		94 => '131141',
+		95 => '114113',
+		96 => '114311',
+		97 => '411113',
+		98 => '411311',
+		99 => '113141',
+		100 => '114131',
+		101 => '311141',
+		102 => '411131',
+		103 => '211412',
+		104 => '211214',
+		105 => '211232',
+		106 => '2331112',
+	];
+
+	return $patterns;
+}
+
+/**
+ * Tạo barcode Code 128 dưới dạng data URI SVG và cache theo mã voucher.
+ *
+ * @param string $voucher_code
+ * @return string
+ */
+function game_bsc_generate_code128_barcode_data_uri($voucher_code) {
+	$voucher_code = trim(sanitize_text_field((string) $voucher_code));
+	if ($voucher_code === '') {
+		return '';
+	}
+
+	if (!preg_match('/^[\x20-\x7E]+$/', $voucher_code)) {
+		$voucher_code = preg_replace('/[^\x20-\x7E]/', '', $voucher_code);
+	}
+
+	if ($voucher_code === '') {
+		return '';
+	}
+
+	static $runtime_cache = [];
+	$cache_key = md5($voucher_code);
+	if (isset($runtime_cache[$cache_key])) {
+		return $runtime_cache[$cache_key];
+	}
+
+	$object_cache_key = 'code128_' . $cache_key;
+	$cached_value = wp_cache_get($object_cache_key, 'game_bsc_barcode');
+	if (is_string($cached_value) && $cached_value !== '') {
+		$runtime_cache[$cache_key] = $cached_value;
+		return $cached_value;
+	}
+
+	$patterns = game_bsc_get_code128_patterns();
+	$data_codes = [];
+	$characters = str_split($voucher_code);
+	foreach ($characters as $character) {
+		$data_codes[] = ord($character) - 32;
+	}
+
+	$checksum = 104;
+	foreach ($data_codes as $index => $code) {
+		$checksum += ($code * ($index + 1));
+	}
+	$checksum %= 103;
+
+	$encoded_codes = array_merge([104], $data_codes, [$checksum, 106]);
+
+	$module_width = 2;
+	$bar_height = 72;
+	$quiet_zone = 10;
+	$x = $quiet_zone * $module_width;
+	$rects = [];
+
+	foreach ($encoded_codes as $code) {
+		$pattern = $patterns[$code] ?? '';
+		if ($pattern === '') {
+			continue;
+		}
+
+		$is_bar = true;
+		$pattern_lengths = str_split($pattern);
+		foreach ($pattern_lengths as $length) {
+			$width = ((int) $length) * $module_width;
+			if ($is_bar) {
+				$rects[] = sprintf('<rect x="%d" y="0" width="%d" height="%d" fill="#111" />', $x, $width, $bar_height);
+			}
+
+			$x += $width;
+			$is_bar = !$is_bar;
+		}
+	}
+
+	$total_width = $x + ($quiet_zone * $module_width);
+	$svg = sprintf(
+		'<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" shape-rendering="crispEdges" role="img" aria-label="Code 128 barcode"><rect width="100%%" height="100%%" fill="#fff" />%s</svg>',
+		$total_width,
+		$bar_height,
+		$total_width,
+		$bar_height,
+		implode('', $rects)
+	);
+
+	$data_uri = 'data:image/svg+xml;base64,' . base64_encode($svg);
+	$runtime_cache[$cache_key] = $data_uri;
+	wp_cache_set($object_cache_key, $data_uri, 'game_bsc_barcode', HOUR_IN_SECONDS);
+
+	return $data_uri;
+}
+
+/**
  * Callback: Lấy thông tin voucher Got It theo transaction_ref_id.
  * Response gồm:
  * - thông tin voucher
@@ -1458,10 +1696,13 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 		$voucher_brand_url = '';
 		$voucher_brand_logo_url = '';
 		$voucher_image_url = '';
+		$applicable_stores = [];
 
 		if ($voucher_post && $voucher_post->post_type === 'game_vouchers') {
 			$voucher_terms = (string) (get_field('voucher_terms', $voucher_post_id) ?? '');
 			$voucher_service_guide = (string) (get_field('voucher_service_guide', $voucher_post_id) ?? '');
+			$applicable_stores = game_bsc_get_voucher_applicable_stores($voucher_post_id);
+
 			$partner_data = get_field('partner', $voucher_post_id);
 			if (!is_array($partner_data)) {
 				$partner_data = [];
@@ -1549,6 +1790,7 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 				'voucher_link' => esc_url((string) ($transaction['gotit_voucher_link'] ?? '')),
 				'voucher_image' => esc_url($voucher_image_url),
 				'serial' => sanitize_text_field((string) ($transaction['gotit_serial'] ?? '')),
+				'barcode' => game_bsc_generate_code128_barcode_data_uri((string) ($transaction['gotit_voucher_code'] ?? '')),
 				'brand_info' => [
 					'name' => $voucher_brand_name,
 					'url' => esc_url($voucher_brand_url),
@@ -1560,6 +1802,7 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 				'terms' => wp_kses_post($voucher_terms),
 				'service_guide' => wp_kses_post($voucher_service_guide),
 			],
+			'applicable_stores' => $applicable_stores,
 			'is_used' => (bool) $is_used,
 		];
 
@@ -1619,6 +1862,57 @@ function game_bsc_issue_voucher(WP_REST_Request $request) {
 		error_log('game_bsc_issue_voucher error: ' . $e->getMessage());
 		return wg_json_response(500, [], __('Lỗi hệ thống. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN), 500);
 	}
+}
+
+function game_bsc_gotit_issue_public_message_from_result($issue_result) {
+	$status_code = (int) ($issue_result['status_code'] ?? 0);
+	$http_code = (int) ($issue_result['http_code'] ?? 0);
+	$error_text = trim((string) ($issue_result['error'] ?? ''));
+
+	$messages = [
+		4001 => __('Hệ thống phát hành voucher chưa được cấu hình đúng. Vui lòng liên hệ quản trị viên.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4002 => __('Hệ thống phát hành voucher chưa được xác thực đúng. Vui lòng liên hệ quản trị viên.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4022 => __('Ngày hết hạn voucher không hợp lệ. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4023 => __('Thiếu thông tin phát hành voucher. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4024 => __('Mệnh giá voucher không khớp với sản phẩm đã chọn. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4026 => __('Thiếu tên chương trình. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4028 => __('Đơn hàng không hợp lệ. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4029 => __('Sản phẩm không hợp lệ. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4030 => __('Danh mục không hợp lệ. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4033 => __('Giao dịch này không hợp lệ hoặc đã hết hiệu lực. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4034 => __('Giao dịch này đã được xử lý trước đó. Vui lòng tải lại trang và kiểm tra lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4035 => __('Voucher link không hợp lệ. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4039 => __('Sản phẩm này hiện không được phép phát hành. Vui lòng chọn voucher khác.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4041 => __('Tài khoản Got It đã hết hạn. Vui lòng liên hệ quản trị viên.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4042 => __('Tài khoản Got It đang bị giới hạn phát hành voucher. Vui lòng liên hệ quản trị viên.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4043 => __('Hệ thống xác thực phát hành voucher chưa hợp lệ. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4044 => __('Giới hạn đơn hàng đã bị vượt quá. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4057 => __('Số lượng voucher không hợp lệ. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4058 => __('Mệnh giá voucher không hợp lệ. Vui lòng chọn lại voucher.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4060 => __('Thiếu mã giao dịch. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4062 => __('Mã giao dịch quá dài. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4063 => __('Định dạng mã giao dịch không hợp lệ. Vui lòng thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		4064 => __('Chữ ký phát hành voucher không hợp lệ. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN),
+		5000 => __('Got It đang gặp lỗi hệ thống. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN),
+	];
+
+	if (isset($messages[$status_code])) {
+		return $messages[$status_code];
+	}
+
+	if ($status_code >= 4000 && $status_code < 5000) {
+		return __('Dữ liệu phát hành voucher chưa hợp lệ. Vui lòng kiểm tra lại và thử lại.', WG_GAME_PLUGIN_TEXTDOMAIN);
+	}
+
+	if ($status_code >= 5000 || $http_code >= 500) {
+		return __('Got It đang bận hoặc gặp lỗi hệ thống. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN);
+	}
+
+	if ($http_code === 403 || stripos($error_text, 'forbidden') !== false) {
+		return __('Không thể phát hành voucher ở thời điểm này. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN);
+	}
+
+	return __('Không thể phát hành voucher lúc này. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN);
 }
 
 
@@ -1896,8 +2190,22 @@ function game_bsc_redeem_voucher_internal($user_id, $voucher_post_id) {
 				]);
 
 				if (empty($issue_result['success'])) {
-					$gotit_error = trim((string) ($issue_result['error'] ?? 'Got It issue failed.'));
-					throw new Exception('Got It issue failed: ' . $gotit_error);
+					$gotit_error = trim((string) ($issue_result['error'] ?? ''));
+					$gotit_status_code = (int) ($issue_result['status_code'] ?? 0);
+					$gotit_http_code = (int) ($issue_result['http_code'] ?? 0);
+					$public_message = function_exists('game_bsc_gotit_issue_public_message_from_result')
+						? game_bsc_gotit_issue_public_message_from_result($issue_result)
+						: __('Không thể phát hành voucher lúc này. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN);
+
+					error_log(sprintf(
+						'Redeem voucher Got It issue failed: status_code=%d http_code=%d error=%s raw=%s',
+						$gotit_status_code,
+						$gotit_http_code,
+						$gotit_error,
+						isset($issue_result['raw']) ? (string) $issue_result['raw'] : ''
+					));
+
+					throw new Exception('USER_SAFE:' . $public_message);
 				}
 
 				$issue_payload = is_array($issue_result['data'] ?? null) ? $issue_result['data'] : [];
@@ -1989,13 +2297,9 @@ function game_bsc_redeem_voucher_internal($user_id, $voucher_post_id) {
 					'gotit_voucher_image' => $issued_voucher_image,
 					'gotit_serial' => $issued_voucher_serial,
 					'gotit_expiry_date' => $issued_voucher_expiry,
-					'gotit_partner_expiry_date' => $partner_expiry_date,
-					'gotit_vendor_name' => $issued_vendor_name,
-					'gotit_is_partner_code' => $issued_is_partner_code,
+                    
 					'gotit_status' => $issued_status,
-					'gotit_raw_response' => (string) ($issue_result['raw'] ?? ''),
-					'gotit_status_code' => (int) ($issue_result['status_code'] ?? 0),
-					'gotit_error_message' => (string) ($issue_result['error'] ?? ''),
+                    
 				]);
 
 				if (empty($txn_saved['ok'])) {
@@ -2077,8 +2381,13 @@ function game_bsc_redeem_voucher_internal($user_id, $voucher_post_id) {
 			
 		} catch (Exception $e) {
 			$wpdb->query('ROLLBACK');
-			error_log('Redeem voucher error: ' . $e->getMessage());
-			return wg_json_response(500, [], __('Giao dịch thất bại: ' . $e->getMessage(), WG_GAME_PLUGIN_TEXTDOMAIN), 500);
+			$error_message = (string) $e->getMessage();
+			$public_message = __('Không thể phát hành voucher lúc này. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN);
+			if (strpos($error_message, 'USER_SAFE:') === 0) {
+				$public_message = substr($error_message, strlen('USER_SAFE:'));
+			}
+			error_log('Redeem voucher error: ' . $error_message);
+			return wg_json_response(500, [], $public_message, 500);
 		}
 		
 	} catch (Throwable $e) {

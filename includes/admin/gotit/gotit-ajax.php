@@ -75,14 +75,11 @@ function game_bsc_insert_gotit_test_transaction($args) {
         'gotit_voucher_link' => esc_url_raw($args['gotit_voucher_link'] ?? ''),
         'gotit_voucher_code' => sanitize_text_field($args['gotit_voucher_code'] ?? ''),
         'gotit_status' => (int) ($args['gotit_status'] ?? 0),
-        'gotit_raw_response' => (string) ($args['gotit_raw_response'] ?? ''),
-        'gotit_status_code' => (int) ($args['gotit_status_code'] ?? 0),
-        'gotit_error_message' => sanitize_text_field($args['gotit_error_message'] ?? ''),
         'created_at' => game_now(),
         'updated_at' => game_now(),
     ];
 
-    $formats = ['%d', '%d', '%d', '%s', '%s', '%d', '%d', '%s', '%s', '%d', '%s', '%d', '%s', '%s', '%s'];
+    $formats = ['%d', '%d', '%d', '%s', '%s', '%d', '%d', '%s', '%s', '%d', '%s', '%s'];
 
     if (!empty($columns['gotit_voucher_image'])) {
         $data['gotit_voucher_image'] = esc_url_raw($args['gotit_voucher_image'] ?? '');
@@ -94,11 +91,6 @@ function game_bsc_insert_gotit_test_transaction($args) {
         $formats[] = '%s';
     }
 
-    if (!empty($columns['gotit_vendor_name'])) {
-        $data['gotit_vendor_name'] = sanitize_text_field($args['gotit_vendor_name'] ?? '');
-        $formats[] = '%s';
-    }
-
     if (!empty($columns['gotit_expiry_date'])) {
         $gotit_expiry_date = game_bsc_gotit_to_mysql_datetime($args['gotit_expiry_date'] ?? '');
         if ($gotit_expiry_date !== '') {
@@ -106,24 +98,7 @@ function game_bsc_insert_gotit_test_transaction($args) {
             $formats[] = '%s';
         }
     }
-
-    if (!empty($columns['gotit_partner_expiry_date'])) {
-        $partner_expiry_date = game_bsc_gotit_to_mysql_datetime($args['gotit_partner_expiry_date'] ?? '');
-        if ($partner_expiry_date !== '') {
-            $data['gotit_partner_expiry_date'] = $partner_expiry_date;
-            $formats[] = '%s';
-        }
-    }
-
-    if (!empty($columns['gotit_is_partner_code'])) {
-        $raw_partner_code = $args['gotit_is_partner_code'] ?? 0;
-        $is_partner_code = in_array(strtolower((string) $raw_partner_code), ['1', 'true', 'yes'], true) ? 1 : 0;
-        if ($raw_partner_code === true || $raw_partner_code === 1) {
-            $is_partner_code = 1;
-        }
-        $data['gotit_is_partner_code'] = $is_partner_code;
-        $formats[] = '%d';
-    }
+    
 
     $inserted = $wpdb->insert(
         $table,
@@ -2261,13 +2236,9 @@ function game_bsc_ajax_gotit_test_issue() {
         'gotit_voucher_image' => $issue_data['voucher_image'] ?? '',
         'gotit_serial' => $issue_data['voucher_serial'] ?? '',
         'gotit_expiry_date' => $issue_data['expiry_date'] ?? '',
-        'gotit_partner_expiry_date' => $partner_expiry_date,
-        'gotit_vendor_name' => $issue_data['vendor_name'] ?? '',
-        'gotit_is_partner_code' => (int) ($issue_data['is_partner_code'] ?? 0),
+        
         'gotit_status' => (int) ($issue_data['status'] ?? 0),
-        'gotit_raw_response' => $result['raw'] ?? '',
-        'gotit_status_code' => (int) ($result['status_code'] ?? 0),
-        'gotit_error_message' => (string) ($result['error'] ?? ''),
+        
     ]);
 
     wp_send_json_success([
