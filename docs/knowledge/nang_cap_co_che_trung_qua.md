@@ -29,6 +29,39 @@ Mỗi lượt thưởng diễn ra theo thứ tự:
    - **Có đủ 3 mảnh nhưng thua tranh chấp pity:** hệ thống chỉ rơi mảnh an toàn (duplicate hoặc mảnh không làm đủ 4).
    - **Chưa đủ 3 mảnh:** hệ thống rơi mảnh theo logic thông thường.
 
+#### 2.1.1 Thắng tranh chấp pity (chi tiết)
+
+Khi có nhiều request cùng thời điểm và cùng nhóm hiện vật, hệ thống dùng cơ chế lock pity để chỉ chọn ra 1 request thắng. Các bước xử lý:
+
+1. Xác định khóa tranh chấp (pity key) theo: `artifact_id + period_id` (cùng hiện vật, cùng kỳ).
+2. Khi request vào đến bước kiểm tra pity, hệ thống thử chiếm lock trên pity key.
+3. Request nào chiếm được lock hợp lệ sẽ là request thắng tranh chấp.
+4. Các request không chiếm được lock trong khoảng thời gian tranh chấp sẽ bị xem là thua pity.
+
+Chi tiết lock:
+
+- **Atomic**: lock phải được tạo bằng thao tác atom (ví dụ: `SETNX`/transaction) để tránh 2 request cùng thắng.
+- **TTL**: lock có TTL ngắn (ví dụ 200-500ms) chỉ để bảo vệ khoảng thời gian tranh chấp tại lượt đó.
+- **Idempotent**: nếu request retry trong TTL, không được đổi kết quả thắng/thua đã xác định.
+- **Scope**: lock chỉ áp dụng trong 1 kỳ của 1 hiện vật; hết kỳ thì lock không còn hiệu lực.
+
+Hệ quả khi thắng tranh chấp:
+
+- Hệ thống bỏ qua random loại mảnh và trao thẳng mảnh còn thiếu để đủ 4.
+- Ghi nhận log thắng pity (user_id, artifact_id, period_id, time).
+
+Hệ quả khi thua tranh chấp:
+
+- Hệ thống chỉ cho phép rơi mảnh an toàn (duplicate hoặc mảnh không làm đủ 4).
+- Ghi nhận log thua pity để theo dõi tranh chấp.
+
+#### 2.1.2 Vi tri code (pity + tranh chap)
+
+- Lock MySQL (GET_LOCK/RELEASE_LOCK): includes/api/rest-sessions.php
+- Check pity + tranh chap lock + gan manh pity: includes/api/rest-sessions.php (ham game_get_random_reward)
+- Nhanh thua lock => safe-piece: includes/api/rest-sessions.php (doan need_safe)
+- Xac dinh du 3 manh va tra manh con thieu: includes/helpers/artifact-period.php (ham game_check_pity)
+
 ### 2.2 Điều kiện để Pity được áp dụng
 
 Pity chỉ kích hoạt khi **đồng thời** thỏa mãn tất cả các điều kiện sau:
