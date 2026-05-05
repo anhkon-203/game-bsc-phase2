@@ -123,14 +123,14 @@ $current_time = $now->format('H:i:s');
 								<input type="hidden" name="paged" value="1">
 								
 								<!-- Filter Loại quà -->
-								<select name="gift_type" class="!py-[11px] !px-3 rounded-md border border-[#C9CCD2]" onchange="document.getElementById('voucherFilterForm').submit()">
+								<select name="gift_type" class="!py-[11px] !px-3 min-w-[148px] rounded-md border border-[#C9CCD2]" onchange="document.getElementById('voucherFilterForm').submit()">
 									<option value="all" <?php selected($gift_type, 'all'); ?>>Tất cả loại quà</option>
 									<option value="voucher" <?php selected($gift_type, 'voucher'); ?>>Voucher</option>
 									<option value="artifact" <?php selected($gift_type, 'artifact'); ?>>Hiện vật</option>
 								</select>
 
 								<!-- Filter Loại voucher -->
-								<select name="voucher_type" class="!py-[11px] !px-3 rounded-md border border-[#C9CCD2]" onchange="document.getElementById('voucherFilterForm').submit()">
+								<select name="voucher_type" class="!py-[11px] !px-3 min-w-[152px] rounded-md border border-[#C9CCD2]" onchange="document.getElementById('voucherFilterForm').submit()">
 									<option value="all" <?php selected($voucher_type, 'all'); ?>>Tất cả voucher</option>
 									<option value="BSC" <?php selected($voucher_type, 'BSC'); ?>>Voucher tại BSC</option>
 									<option value="third_party" <?php selected($voucher_type, 'third_party'); ?>>Voucher bên thứ 3</option>
@@ -150,21 +150,25 @@ $current_time = $now->format('H:i:s');
 								</div>
 								
 								<!-- Search Input -->
-								<input type="text" name="search" class="!py-[11px] !px-3 min-w-[372px]" placeholder="Tìm kiếm người dùng" value="<?php echo esc_attr($search); ?>">
+								<input type="text" name="search" class="!py-[11px] !px-3 min-w-[180px]" placeholder="Tìm kiếm người dùng" value="<?php echo esc_attr($search); ?>">
 								
 								<!-- Submit Button -->
-								<button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-md text-sm font-medium hover:bg-blue-600">Tìm kiếm</button>
+								<button type="submit" title="Tìm kiếm" class="w-[38px] h-[38px] bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center justify-center flex-shrink-0">
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<circle cx="11" cy="11" r="8"></circle>
+										<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+									</svg>
+								</button>
+                                
+                                <!-- Export CSV Button (inside form để cùng flex container) -->
+                                <button type="button" onclick="exportVoucherListToCSV()" title="Xuất Excel" class="w-[38px] h-[38px] bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center justify-center flex-shrink-0">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                    </svg>
+                                </button>
 							</form>
-
-							<!-- Export CSV Button -->
-							<button type="button" onclick="exportVoucherListToCSV()" class="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 flex items-center gap-2">
-								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-									<polyline points="7 10 12 15 17 10"></polyline>
-									<line x1="12" y1="15" x2="12" y2="3"></line>
-								</svg>
-								Xuất Excel
-							</button>
 						</div>
 					</div>
 					
@@ -429,4 +433,20 @@ function exportVoucherListToCSV() {
 }
 </script>
 
+<script>
+/* ── Date range validation: Từ ngày phải <= Đến ngày ── */
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('form').forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            var fromEl = form.querySelector('[name="date_from"]');
+            var toEl   = form.querySelector('[name="date_to"]');
+            if (fromEl && toEl && fromEl.value && toEl.value && fromEl.value > toEl.value) {
+                alert('"Từ ngày" phải nhỏ hơn hoặc bằng "Đến ngày".');
+                toEl.focus();
+                e.preventDefault();
+            }
+        });
+    });
+});
+</script>
 

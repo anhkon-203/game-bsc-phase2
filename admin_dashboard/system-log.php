@@ -273,19 +273,19 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                     </div>
                 <?php else: ?>
                     <div class="flex flex-col gap-4">
-                        <form method="get" action="" class="flex gap-3 items-end flex-wrap">
+                        <form method="get" action="" id="voucher-log-form" class="flex gap-3 items-end flex-wrap">
                             <input type="hidden" name="page" value="<?php echo esc_attr($page_slug); ?>">
                             <input type="hidden" name="sub" value="<?php echo esc_attr($sub_slug); ?>">
                             <input type="hidden" name="log_tab" value="voucher-excel">
 
                             <div>
                                 <label class="block text-sm text-[#6A7A95] mb-1">Từ ngày</label>
-                                <input type="datetime-local" name="voucher_date_from" class="!py-[11px] !px-3" value="<?php echo esc_attr($voucher_date_from); ?>">
+                                <input type="datetime-local" id="v_from" name="voucher_date_from" class="!py-[11px] !px-3" value="<?php echo esc_attr($voucher_date_from); ?>">
                             </div>
 
                             <div>
                                 <label class="block text-sm text-[#6A7A95] mb-1">Đến ngày</label>
-                                <input type="datetime-local" name="voucher_date_to" class="!py-[11px] !px-3" value="<?php echo esc_attr($voucher_date_to); ?>">
+                                <input type="datetime-local" id="v_to" name="voucher_date_to" class="!py-[11px] !px-3" value="<?php echo esc_attr($voucher_date_to); ?>">
                             </div>
 
                             <div>
@@ -305,24 +305,17 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                             <button type="submit" class="button button-primary" style="height: 38px;">Lọc dữ liệu</button>
                         </form>
 
-                        <div class="flex flex-col wrapper-table">
-                            <div class="flex justify-between items-center bg-white pl-4">
-                                <p class="text-[#4D7CFF] text-sm font-medium cus-bg">
-                                    <?php echo sprintf(__('Tổng %d lượt upload/import', 'wg-game-bsc'), (int) $voucher_history['total']); ?>
-                                </p>
-                            </div>
-
+                        <!-- Lịch sử Upload/Import -->
+                        <div id="panel-vtab-upload" class="flex flex-col wrapper-table">
                             <div class="overflow-x-auto table-general">
                                 <table class="min-w-full border-collapse divide-y divide-gray-200">
-                                    <thead class="bg-gray-50">
-                                    <tr>
+                                    <thead class="bg-gray-50"><tr>
                                         <th class="px-6 py-3 text-left">ID</th>
                                         <th class="px-6 py-3 text-left">File</th>
                                         <th class="px-6 py-3 text-left">Người upload</th>
                                         <th class="px-6 py-3 text-left">Kết quả</th>
                                         <th class="px-6 py-3 text-left">Thời gian</th>
-                                    </tr>
-                                    </thead>
+                                    </tr></thead>
                                     <tbody class="divide-y divide-gray-100">
                                     <?php if (!empty($voucher_history['rows'])): ?>
                                         <?php foreach ($voucher_history['rows'] as $item): ?>
@@ -339,117 +332,27 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                                                     <small style="color:#999;"><?php echo esc_html($item['user_email']); ?></small>
                                                 </td>
                                                 <td class="px-6 py-3">
-                                                    <div>
-                                                        <span class="badge-action" style="background: <?php echo $item['mode'] === 'apply' ? '#2271b1' : '#6c757d'; ?>; color:#fff;">
-                                                            <?php echo esc_html($item['mode_label']); ?>
-                                                        </span>
-                                                    </div>
-                                                    <small class="block mt-2">Tổng: <?php echo (int) $item['total_rows']; ?>, Cập nhật: <?php echo (int) $item['updated_rows']; ?>, Bỏ qua: <?php echo (int) $item['skipped_rows']; ?>, Conflict: <?php echo (int) $item['conflict_rows']; ?>, Lỗi: <?php echo (int) $item['error_rows']; ?></small>
+                                                    <span class="badge-action" style="background:<?php echo $item['mode'] === 'apply' ? '#2271b1' : '#6c757d'; ?>;color:#fff;"><?php echo esc_html($item['mode_label']); ?></span>
+                                                    <small class="block mt-2">Tổng: <?php echo (int)$item['total_rows']; ?>, Cập nhật: <?php echo (int)$item['updated_rows']; ?>, Bỏ qua: <?php echo (int)$item['skipped_rows']; ?>, Conflict: <?php echo (int)$item['conflict_rows']; ?>, Lỗi: <?php echo (int)$item['error_rows']; ?></small>
                                                 </td>
                                                 <td class="px-6 py-3"><?php echo esc_html($item['uploaded_at_formatted']); ?></td>
                                             </tr>
                                         <?php endforeach; ?>
                                     <?php else: ?>
-                                        <tr>
-                                            <td colspan="5" style="text-align:center; padding: 30px;"><em>Không có dữ liệu lịch sử upload/import.</em></td>
-                                        </tr>
+                                        <tr><td colspan="5" class="px-6 py-8 text-center text-gray-500"><em>Không có dữ liệu lịch sử upload/import.</em></td></tr>
                                     <?php endif; ?>
                                     </tbody>
                                 </table>
                             </div>
-
                             <div class="px-6 py-4 border-t border-gray-100 flex justify-between items-center">
-                                <p class="text-sm font-regular text-[#6A7A95]">
-                                    Trang <span class="text-[#344054] font-medium"><?php echo (int) $voucher_history['paged']; ?></span>
-                                    trên <span class="text-[#344054] font-medium"><?php echo (int) $voucher_history['total_pages']; ?></span>
-                                </p>
+                                <p class="text-sm text-[#6A7A95]">Trang <span class="font-medium text-[#344054]"><?php echo (int)$voucher_history['paged']; ?></span> trên <span class="font-medium text-[#344054]"><?php echo (int)$voucher_history['total_pages']; ?></span></p>
                                 <div class="flex gap-4">
-                                    <?php if ((int) $voucher_history['paged'] > 1): ?>
-                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'voucher_date_from' => $voucher_date_from, 'voucher_date_to' => $voucher_date_to, 'vh_paged' => (int) $voucher_history['paged'] - 1, 'vl_paged' => (int) $voucher_related_logs['paged']]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang trước</a>
-                                    <?php else: ?>
-                                        <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang trước</button>
-                                    <?php endif; ?>
-
-                                    <?php if ((int) $voucher_history['paged'] < (int) $voucher_history['total_pages']): ?>
-                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'voucher_date_from' => $voucher_date_from, 'voucher_date_to' => $voucher_date_to, 'vh_paged' => (int) $voucher_history['paged'] + 1, 'vl_paged' => (int) $voucher_related_logs['paged']]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang sau</a>
-                                    <?php else: ?>
-                                        <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang sau</button>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="flex flex-col wrapper-table">
-                            <div class="flex justify-between items-center bg-white pl-4">
-                                <p class="text-[#4D7CFF] text-sm font-medium cus-bg">
-                                    <?php echo sprintf(__('Tổng %d log liên quan import/export', 'wg-game-bsc'), (int) $voucher_related_logs['total']); ?>
-                                </p>
-                            </div>
-
-                            <div class="overflow-x-auto table-general">
-                                <table class="min-w-full border-collapse divide-y divide-gray-200">
-                                    <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-6 py-3 text-left">ID</th>
-                                        <th class="px-6 py-3 text-left">Người thao tác</th>
-                                        <th class="px-6 py-3 text-left">Loại log</th>
-                                        <th class="px-6 py-3 text-left">Payload</th>
-                                        <th class="px-6 py-3 text-left">Thời gian</th>
-                                    </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-100">
-                                    <?php if (!empty($voucher_related_logs['rows'])): ?>
-                                        <?php foreach ($voucher_related_logs['rows'] as $log): ?>
-                                            <tr class="hover:bg-gray-50 transition td-content">
-                                                <td class="px-6 py-3"><?php echo (int) $log['id']; ?></td>
-                                                <td class="px-6 py-3">
-                                                    <div><?php echo esc_html($log['user_name']); ?></div>
-                                                    <small style="color:#999;"><?php echo esc_html($log['user_email']); ?></small>
-                                                </td>
-                                                <td class="px-6 py-3">
-                                                    <div>
-                                                        <span class="badge-action" style="<?php echo esc_attr(game_bsc_get_action_badge_style($log['action'])); ?>">
-                                                            <?php echo esc_html($log['action_label']); ?>
-                                                        </span>
-                                                        <br>
-                                                        <small style="color: #666; margin-top: 3px; display: inline-block;">
-                                                            <?php echo esc_html($log['setting_label']); ?>
-                                                        </small>
-                                                    </div>
-                                                </td>
-                                                <td class="px-6 py-3 max-w-[520px]"><div class="mono"><?php echo esc_html((string) $log['payload']); ?></div></td>
-                                                <td class="px-6 py-3">
-                                                    <div><?php echo esc_html($log['created_at_formatted']); ?></div>
-                                                    <small style="color:#999;"><?php echo esc_html($log['ip_address']); ?></small>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <tr>
-                                            <td colspan="5" style="text-align:center; padding: 30px;"><em>Không có log liên quan import/export Excel voucher.</em></td>
-                                        </tr>
-                                    <?php endif; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div class="px-6 py-4 border-t border-gray-100 flex justify-between items-center">
-                                <p class="text-sm font-regular text-[#6A7A95]">
-                                    Trang <span class="text-[#344054] font-medium"><?php echo (int) $voucher_related_logs['paged']; ?></span>
-                                    trên <span class="text-[#344054] font-medium"><?php echo (int) $voucher_related_logs['total_pages']; ?></span>
-                                </p>
-                                <div class="flex gap-4">
-                                    <?php if ((int) $voucher_related_logs['paged'] > 1): ?>
-                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'voucher_date_from' => $voucher_date_from, 'voucher_date_to' => $voucher_date_to, 'vh_paged' => (int) $voucher_history['paged'], 'vl_paged' => (int) $voucher_related_logs['paged'] - 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang trước</a>
-                                    <?php else: ?>
-                                        <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang trước</button>
-                                    <?php endif; ?>
-
-                                    <?php if ((int) $voucher_related_logs['paged'] < (int) $voucher_related_logs['total_pages']): ?>
-                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'voucher_date_from' => $voucher_date_from, 'voucher_date_to' => $voucher_date_to, 'vh_paged' => (int) $voucher_history['paged'], 'vl_paged' => (int) $voucher_related_logs['paged'] + 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang sau</a>
-                                    <?php else: ?>
-                                        <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang sau</button>
-                                    <?php endif; ?>
+                                    <?php if ((int)$voucher_history['paged'] > 1): ?>
+                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab'=>'voucher-excel','voucher_search'=>$voucher_search_query,'voucher_mode'=>$voucher_mode,'voucher_date_from'=>$voucher_date_from,'voucher_date_to'=>$voucher_date_to,'vh_paged'=>(int)$voucher_history['paged']-1,'vl_paged'=>(int)$voucher_related_logs['paged']]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-[#344054] hover:bg-gray-50">Trang trước</a>
+                                    <?php else: ?><button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-[#344054] opacity-50">Trang trước</button><?php endif; ?>
+                                    <?php if ((int)$voucher_history['paged'] < (int)$voucher_history['total_pages']): ?>
+                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab'=>'voucher-excel','voucher_search'=>$voucher_search_query,'voucher_mode'=>$voucher_mode,'voucher_date_from'=>$voucher_date_from,'voucher_date_to'=>$voucher_date_to,'vh_paged'=>(int)$voucher_history['paged']+1,'vl_paged'=>(int)$voucher_related_logs['paged']]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-[#344054] hover:bg-gray-50">Trang sau</a>
+                                    <?php else: ?><button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-[#344054] opacity-50">Trang sau</button><?php endif; ?>
                                 </div>
                             </div>
                         </div>
@@ -461,3 +364,28 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
 </main>
 
 <script src="https://cdn.tailwindcss.com"></script>
+
+<script>
+/* ── Date range validation: Từ ngày phải <= Đến ngày ── */
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('form').forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            var pairs = [
+                ['admin_date_from',   'admin_date_to'],
+                ['voucher_date_from', 'voucher_date_to'],
+                ['date_from',         'date_to'],
+            ];
+            for (var i = 0; i < pairs.length; i++) {
+                var fromEl = form.querySelector('[name="' + pairs[i][0] + '"]');
+                var toEl   = form.querySelector('[name="' + pairs[i][1] + '"]');
+                if (fromEl && toEl && fromEl.value && toEl.value && fromEl.value > toEl.value) {
+                    alert('"Từ ngày" phải nhỏ hơn hoặc bằng "Đến ngày".');
+                    toEl.focus();
+                    e.preventDefault();
+                    return;
+                }
+            }
+        });
+    });
+});
+</script>

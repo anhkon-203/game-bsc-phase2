@@ -186,6 +186,15 @@ function game_get_user_info(WP_REST_Request $request)
 		return wg_json_response(403, [], __('Yêu cầu không hợp lệ.', WG_GAME_PLUGIN_TEXTDOMAIN));
 	}
 	
+	// ===== KIỂM TRA TÀI KHOẢN NƯỚC NGOÀI =====
+	// Cookie game_foreign_account=1 được set bởi bsc_game_handle_sso_callback() khi custodycd không có prefix 002C
+	if (!empty($_COOKIE['game_foreign_account'])) {
+		return wg_json_response(401, [
+			'is_foreign_account' => true,
+			'error_code'         => 'foreign_account',
+		], __('Tài khoản của bạn là tài khoản nước ngoài và không được phép tham gia chương trình Gamification.', WG_GAME_PLUGIN_TEXTDOMAIN), 401);
+	}
+
 	// ===== SECURITY: Kiểm tra session SSO =====
 	$current_user = game_sso_require_session();
 	if (is_wp_error($current_user) || empty($current_user['id'])) {

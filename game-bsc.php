@@ -387,6 +387,65 @@ function game_set_auth_cookie($token, $ttl = 10800) {
 }
 
 /**
+ * Đánh dấu cookie báo đây là tài khoản nước ngoài (không được phép chơi Gamification).
+ * Cookie được PHP server đọc qua $_COOKIE để trả về error_code='foreign_account' trong API response.
+ * httpOnly=true vì chỉ server cần đọc, JS không cần truy cập trực tiếp.
+ */
+function game_set_foreign_account_cookie($ttl = 10800) {
+  $expire = time() + $ttl;
+  $cookie_name = 'game_foreign_account';
+  if ( PHP_VERSION_ID >= 70300 ) {
+    setcookie( $cookie_name, '1', [
+      'expires'  => $expire,
+      'path'     => defined('COOKIEPATH') ? COOKIEPATH : '/',
+      'domain'   => defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '',
+      'secure'   => is_ssl(),
+      'httponly' => true, 
+      'samesite' => 'Lax',
+    ] );
+  } else {
+    setcookie(
+      $cookie_name,
+      '1',
+      $expire,
+      ( defined('COOKIEPATH') ? COOKIEPATH : '/' ),
+      ( defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '' ),
+      is_ssl(),
+      false
+    );
+  }
+  $_COOKIE[$cookie_name] = '1';
+}
+
+/**
+ * Xoá cookie game_foreign_account (khi user hợp lệ đăng nhập thành công).
+ */
+function game_clear_foreign_account_cookie() {
+  $cookie_name = 'game_foreign_account';
+  if ( PHP_VERSION_ID >= 70300 ) {
+    setcookie( $cookie_name, '', [
+      'expires'  => time() - 3600,
+      'path'     => defined('COOKIEPATH') ? COOKIEPATH : '/',
+      'domain'   => defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '',
+      'secure'   => is_ssl(),
+      'httponly' => false,
+      'samesite' => 'Lax',
+    ] );
+  } else {
+    setcookie(
+      $cookie_name,
+      '',
+      time() - 3600,
+      ( defined('COOKIEPATH') ? COOKIEPATH : '/' ),
+      ( defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '' ),
+      is_ssl(),
+      false
+    );
+  }
+  unset($_COOKIE[$cookie_name]);
+}
+
+/**
  * Validate an auth token from cookie. Returns user array on success or WP_Error.
  */
 function game_validate_user_token($token) {
@@ -492,9 +551,13 @@ function bsc_game_handle_sso_callback()
   // ===== RULE: Chỉ cho phép tài khoản nội địa (prefix 002C) =====
   // 002F = tài khoản nước ngoài → chặn truy cập Gamification
   if (empty($custodycd) || substr($custodycd, 0, 4) !== '002C') {
-    
+    // Đánh dấu cookie để FE biết đây là tài khoản nước ngoài
+    game_set_foreign_account_cookie(10800);
     return;
   }
+
+  // Tài khoản hợp lệ → xoá cờ nước ngoài nếu còn tồn tại
+  game_clear_foreign_account_cookie();
 
   // ===== Xác định provider từ utm_source cookie =====
   $utm_source_cookie = $_COOKIE['utm_source'] ?? '';
