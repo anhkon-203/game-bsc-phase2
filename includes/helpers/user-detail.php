@@ -12,7 +12,7 @@ function game_bsc_get_user_details($user_id) {
 	try {
 		$user = $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT id, name, status, created_at, last_login_at FROM {$prefix}users WHERE id = %d",
+				"SELECT id, name, external_user_id, status, created_at, last_login_at FROM {$prefix}users WHERE id = %d",
 				$user_id
 			),
 			ARRAY_A
@@ -97,6 +97,7 @@ function game_bsc_get_user_details($user_id) {
 		return [
 			'user_id' => (int)$user['id'],
 			'name' => sanitize_text_field($user['name']),
+			'external_user_id' => sanitize_text_field($user['external_user_id'] ?? ''),
 			'total_points' => $total_points,
 			'total_pieces' => $total_pieces,
 			'current_day_index' => $current_day_index,

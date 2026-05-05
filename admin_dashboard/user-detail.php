@@ -347,6 +347,14 @@ if ($user_id > 0) {
                                     </span>
                                     </div>
 
+                                    <!-- STK -->
+                                    <div class="info-item flex gap-4">
+                                        <span class="text-sm font-medium text-[#6A7A95] w-fit]">STK:</span>
+                                        <span class="text-sm font-regular text-[#344054]">
+                                        <?php echo esc_html($user_details['external_user_id'] ?? '-'); ?>
+                                    </span>
+                                    </div>
+
                                     <!-- Tổng điểm -->
                                     <div class="info-item flex gap-4">
                                         <span class="text-sm font-medium text-[#6A7A95] w-fit]">Tổng điểm:</span>

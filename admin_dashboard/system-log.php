@@ -22,11 +22,15 @@ $base_params = [
 ];
 
 $search_query = isset($_GET['search']) ? sanitize_text_field((string) $_GET['search']) : '';
+$admin_date_from = isset($_GET['admin_date_from']) ? sanitize_text_field((string) $_GET['admin_date_from']) : '';
+$admin_date_to = isset($_GET['admin_date_to']) ? sanitize_text_field((string) $_GET['admin_date_to']) : '';
 $paged = max(1, (int) ($_GET['paged'] ?? 1));
 $per_page = 10;
-$logs_data = game_bsc_get_dashboard_logs_with_search($paged, $per_page, $search_query);
+$logs_data = game_bsc_get_dashboard_logs_with_search($paged, $per_page, $search_query, $admin_date_from, $admin_date_to);
 
 $voucher_search_query = isset($_GET['voucher_search']) ? sanitize_text_field((string) $_GET['voucher_search']) : '';
+$voucher_date_from = isset($_GET['voucher_date_from']) ? sanitize_text_field((string) $_GET['voucher_date_from']) : '';
+$voucher_date_to = isset($_GET['voucher_date_to']) ? sanitize_text_field((string) $_GET['voucher_date_to']) : '';
 $voucher_mode = sanitize_key((string) ($_GET['voucher_mode'] ?? 'all'));
 if (!in_array($voucher_mode, ['all', 'dry-run', 'apply'], true)) {
     $voucher_mode = 'all';
@@ -40,12 +44,16 @@ $voucher_history = game_bsc_get_voucher_excel_history_data(
     $voucher_history_paged,
     $voucher_per_page,
     $voucher_search_query,
-    $voucher_mode
+    $voucher_mode,
+    $voucher_date_from,
+    $voucher_date_to
 );
 $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
     $voucher_related_paged,
     $voucher_per_page,
-    $voucher_search_query
+    $voucher_search_query,
+    $voucher_date_from,
+    $voucher_date_to
 );
 ?>
 <script src="<?php echo esc_url(GAME_BSC_PLUGIN_URL . 'admin_dashboard/assets/js/tailwind.config.js'); ?>"></script>
@@ -161,6 +169,16 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                                     <input type="hidden" name="sub" value="<?php echo esc_attr($sub_slug); ?>">
                                     <input type="hidden" name="log_tab" value="admin">
 
+                                    <div>
+                                        <label class="block text-sm text-[#6A7A95] mb-1">Từ ngày</label>
+                                        <input type="datetime-local" name="admin_date_from" class="!py-[11px] !px-3" value="<?php echo esc_attr($admin_date_from); ?>">
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm text-[#6A7A95] mb-1">Đến ngày</label>
+                                        <input type="datetime-local" name="admin_date_to" class="!py-[11px] !px-3" value="<?php echo esc_attr($admin_date_to); ?>">
+                                    </div>
+
                                     <input type="text" name="search" class="!py-[11px] !px-3 min-w-[300px]"
                                            placeholder="Tìm kiếm theo tên hoặc email"
                                            value="<?php echo esc_attr($search_query); ?>">
@@ -235,13 +253,13 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                                             </p>
                                             <div class="right flex gap-4">
                                                 <?php if ((int) $logs_data['paged'] > 1): ?>
-                                                    <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'admin', 'search' => $search_query, 'paged' => (int) $logs_data['paged'] - 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang trước</a>
+                                                    <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'admin', 'search' => $search_query, 'admin_date_from' => $admin_date_from, 'admin_date_to' => $admin_date_to, 'paged' => (int) $logs_data['paged'] - 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang trước</a>
                                                 <?php else: ?>
                                                     <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang trước</button>
                                                 <?php endif; ?>
 
                                                 <?php if ((int) $logs_data['paged'] < (int) $logs_data['total_pages']): ?>
-                                                    <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'admin', 'search' => $search_query, 'paged' => (int) $logs_data['paged'] + 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang sau</a>
+                                                    <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'admin', 'search' => $search_query, 'admin_date_from' => $admin_date_from, 'admin_date_to' => $admin_date_to, 'paged' => (int) $logs_data['paged'] + 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang sau</a>
                                                 <?php else: ?>
                                                     <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang sau</button>
                                                 <?php endif; ?>
@@ -259,6 +277,16 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                             <input type="hidden" name="page" value="<?php echo esc_attr($page_slug); ?>">
                             <input type="hidden" name="sub" value="<?php echo esc_attr($sub_slug); ?>">
                             <input type="hidden" name="log_tab" value="voucher-excel">
+
+                            <div>
+                                <label class="block text-sm text-[#6A7A95] mb-1">Từ ngày</label>
+                                <input type="datetime-local" name="voucher_date_from" class="!py-[11px] !px-3" value="<?php echo esc_attr($voucher_date_from); ?>">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm text-[#6A7A95] mb-1">Đến ngày</label>
+                                <input type="datetime-local" name="voucher_date_to" class="!py-[11px] !px-3" value="<?php echo esc_attr($voucher_date_to); ?>">
+                            </div>
 
                             <div>
                                 <label class="block text-sm text-[#6A7A95] mb-1">Từ khóa</label>
@@ -337,13 +365,13 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                                 </p>
                                 <div class="flex gap-4">
                                     <?php if ((int) $voucher_history['paged'] > 1): ?>
-                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'vh_paged' => (int) $voucher_history['paged'] - 1, 'vl_paged' => (int) $voucher_related_logs['paged']]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang trước</a>
+                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'voucher_date_from' => $voucher_date_from, 'voucher_date_to' => $voucher_date_to, 'vh_paged' => (int) $voucher_history['paged'] - 1, 'vl_paged' => (int) $voucher_related_logs['paged']]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang trước</a>
                                     <?php else: ?>
                                         <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang trước</button>
                                     <?php endif; ?>
 
                                     <?php if ((int) $voucher_history['paged'] < (int) $voucher_history['total_pages']): ?>
-                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'vh_paged' => (int) $voucher_history['paged'] + 1, 'vl_paged' => (int) $voucher_related_logs['paged']]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang sau</a>
+                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'voucher_date_from' => $voucher_date_from, 'voucher_date_to' => $voucher_date_to, 'vh_paged' => (int) $voucher_history['paged'] + 1, 'vl_paged' => (int) $voucher_related_logs['paged']]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang sau</a>
                                     <?php else: ?>
                                         <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang sau</button>
                                     <?php endif; ?>
@@ -412,13 +440,13 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                                 </p>
                                 <div class="flex gap-4">
                                     <?php if ((int) $voucher_related_logs['paged'] > 1): ?>
-                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'vh_paged' => (int) $voucher_history['paged'], 'vl_paged' => (int) $voucher_related_logs['paged'] - 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang trước</a>
+                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'voucher_date_from' => $voucher_date_from, 'voucher_date_to' => $voucher_date_to, 'vh_paged' => (int) $voucher_history['paged'], 'vl_paged' => (int) $voucher_related_logs['paged'] - 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang trước</a>
                                     <?php else: ?>
                                         <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang trước</button>
                                     <?php endif; ?>
 
                                     <?php if ((int) $voucher_related_logs['paged'] < (int) $voucher_related_logs['total_pages']): ?>
-                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'vh_paged' => (int) $voucher_history['paged'], 'vl_paged' => (int) $voucher_related_logs['paged'] + 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang sau</a>
+                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'voucher_search' => $voucher_search_query, 'voucher_mode' => $voucher_mode, 'voucher_date_from' => $voucher_date_from, 'voucher_date_to' => $voucher_date_to, 'vh_paged' => (int) $voucher_history['paged'], 'vl_paged' => (int) $voucher_related_logs['paged'] + 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] hover:bg-gray-50">Trang sau</a>
                                     <?php else: ?>
                                         <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-[#344054] opacity-50">Trang sau</button>
                                     <?php endif; ?>

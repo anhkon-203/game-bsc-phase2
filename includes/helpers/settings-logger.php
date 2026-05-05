@@ -669,14 +669,37 @@ function game_bsc_get_dashboard_logs_data($paged = 1, $per_page = 10)
 }
 
 /**
+ * Normalize datetime-local input to MySQL datetime.
+ */
+function game_bsc_normalize_datetime_local($value)
+{
+	$value = sanitize_text_field(trim((string) $value));
+	if ($value === '') {
+		return '';
+	}
+
+	$formats = ['Y-m-d\TH:i', 'Y-m-d H:i', 'Y-m-d\TH:i:s', 'Y-m-d H:i:s'];
+	foreach ($formats as $format) {
+		$date = DateTime::createFromFormat($format, $value, TIMEZONE);
+		if ($date instanceof DateTime) {
+			return $date->format('Y-m-d H:i:s');
+		}
+	}
+
+	return $value;
+}
+
+/**
  * Lấy dữ liệu logs với filter tìm kiếm
  */
-function game_bsc_get_dashboard_logs_with_search($paged = 1, $per_page = 10, $search_query = '')
+function game_bsc_get_dashboard_logs_with_search($paged = 1, $per_page = 10, $search_query = '', $date_from = '', $date_to = '')
 {
 	global $wpdb;
 	$prefix = $wpdb->prefix . 'game_';
 	
 	$search_query = sanitize_text_field(trim($search_query));
+	$date_from = game_bsc_normalize_datetime_local($date_from);
+	$date_to = game_bsc_normalize_datetime_local($date_to);
 	$offset = ($paged - 1) * $per_page;
 	
 	$where_clauses = ['1=1'];
@@ -689,6 +712,16 @@ function game_bsc_get_dashboard_logs_with_search($paged = 1, $per_page = 10, $se
 		$params[] = $search_like;
 		$params[] = $search_like;
 		$params[] = $search_query;
+	}
+
+	if ($date_from !== '') {
+		$where_clauses[] = 'sl.created_at >= %s';
+		$params[] = $date_from;
+	}
+
+	if ($date_to !== '') {
+		$where_clauses[] = 'sl.created_at <= %s';
+		$params[] = $date_to;
 	}
 	
 	$where = implode(' AND ', $where_clauses);
@@ -786,13 +819,15 @@ function game_bsc_get_dashboard_logs_with_search($paged = 1, $per_page = 10, $se
 /**
  * Lấy lịch sử upload/import điểm voucher từ bảng wp_game_voucher_points_import_history.
  */
-function game_bsc_get_voucher_excel_history_data($paged = 1, $per_page = 10, $search_query = '', $mode = 'all')
+function game_bsc_get_voucher_excel_history_data($paged = 1, $per_page = 10, $search_query = '', $mode = 'all', $date_from = '', $date_to = '')
 {
 	global $wpdb;
 
 	$history_table = $wpdb->prefix . 'game_voucher_points_import_history';
 	$search_query = sanitize_text_field(trim((string) $search_query));
 	$mode = sanitize_key((string) $mode);
+	$date_from = game_bsc_normalize_datetime_local($date_from);
+	$date_to = game_bsc_normalize_datetime_local($date_to);
 	$paged = max(1, (int) $paged);
 	$per_page = max(1, (int) $per_page);
 	$offset = ($paged - 1) * $per_page;
@@ -812,6 +847,16 @@ function game_bsc_get_voucher_excel_history_data($paged = 1, $per_page = 10, $se
 		$params[] = $search_like;
 		$params[] = $search_like;
 		$params[] = $search_query;
+	}
+
+	if ($date_from !== '') {
+		$where_clauses[] = 'ih.uploaded_at >= %s';
+		$params[] = $date_from;
+	}
+
+	if ($date_to !== '') {
+		$where_clauses[] = 'ih.uploaded_at <= %s';
+		$params[] = $date_to;
 	}
 
 	$where_sql = implode(' AND ', $where_clauses);
@@ -934,12 +979,14 @@ function game_bsc_format_voucher_excel_log_payload($new_value)
 /**
  * Lấy log liên quan đến import/export voucher excel trong settings_logs.
  */
-function game_bsc_get_voucher_excel_related_logs($paged = 1, $per_page = 10, $search_query = '')
+function game_bsc_get_voucher_excel_related_logs($paged = 1, $per_page = 10, $search_query = '', $date_from = '', $date_to = '')
 {
 	global $wpdb;
 	$prefix = $wpdb->prefix . 'game_';
 
 	$search_query = sanitize_text_field(trim((string) $search_query));
+	$date_from = game_bsc_normalize_datetime_local($date_from);
+	$date_to = game_bsc_normalize_datetime_local($date_to);
 	$paged = max(1, (int) $paged);
 	$per_page = max(1, (int) $per_page);
 	$offset = ($paged - 1) * $per_page;
@@ -955,6 +1002,16 @@ function game_bsc_get_voucher_excel_related_logs($paged = 1, $per_page = 10, $se
 		$params[] = $search_like;
 		$params[] = $search_like;
 		$params[] = $search_query;
+	}
+
+	if ($date_from !== '') {
+		$where_clauses[] = 'sl.created_at >= %s';
+		$params[] = $date_from;
+	}
+
+	if ($date_to !== '') {
+		$where_clauses[] = 'sl.created_at <= %s';
+		$params[] = $date_to;
 	}
 
 	$where_sql = implode(' AND ', $where_clauses);

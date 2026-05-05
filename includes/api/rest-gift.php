@@ -1598,7 +1598,7 @@ function game_bsc_generate_code128_barcode_data_uri($voucher_code) {
 
 	$module_width = 2;
 	$bar_height = 72;
-	$quiet_zone = 10;
+	$quiet_zone = 4;
 	$x = $quiet_zone * $module_width;
 	$rects = [];
 
@@ -2830,10 +2830,11 @@ function game_get_user_voucher_redemptions($user_id, $exclude_gotit = true)
 		$points_cost = (int)(get_field('points_cost', $voucher_id) ?? 0);
 		$voucheramt = (float) (get_post_meta($voucher_id, 'voucheramt', true) ?: 0);
 		$prinpaid = (float) (get_post_meta($voucher_id, 'prinpaid', true) ?: 0);
-		$redeemed_banner_id = (get_field('redeemed_banner_image', $voucher_id) ?? '');
+		// Lấy ảnh từ featured image (thumbnail) của post voucher
 		$redeemed_banner_image_url = '';
-		if ($redeemed_banner_id){
-			$redeemed_banner_image_url = wp_get_attachment_image_url($redeemed_banner_id, 'full') ?: '';
+		$redeemed_banner_thumb_id = get_post_thumbnail_id($voucher_id);
+		if ($redeemed_banner_thumb_id) {
+			$redeemed_banner_image_url = wp_get_attachment_image_url($redeemed_banner_thumb_id, 'full') ?: '';
 		}
 		// Lấy partner (ACF group field)
 		$partner_data = get_field('partner', $voucher_id) ?: [];

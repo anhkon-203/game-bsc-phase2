@@ -33,6 +33,7 @@ $provider = isset($_GET['provider']) ? sanitize_text_field($_GET['provider']) : 
 $status_play = isset($_GET['status_play']) ? sanitize_text_field($_GET['status_play']) : null;
 $status_active = isset($_GET['status_active']) ? sanitize_text_field($_GET['status_active']) : null;
 $date_access = isset($_GET['date_access']) ? sanitize_text_field($_GET['date_access']) : null;
+$search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : null;
 // Gọi hàm lấy dữ liệu
 $result = game_bsc_get_users_access_data_paginated($page, 20, [
         'date_from' => $date_from,
@@ -41,6 +42,7 @@ $result = game_bsc_get_users_access_data_paginated($page, 20, [
         'status_play' => $status_play,
         'status_active' => $status_active,
         'date_access' => $date_access,
+        'search' => $search,
 ]);
 
 // Xử lý dữ liệu
@@ -278,6 +280,7 @@ function format_datetime($datetime_str) {
                     <form method="GET" class="flex items-center gap-[15px] py-[6px] px-3 rounded-lg border border-solid border-[#C9CCD2]">
                         <input type="hidden" name="page" value="dashboard-layout">
                         <input type="hidden" name="sub" value="user-management">
+                        <input type="hidden" name="search" value="<?php echo esc_attr($search); ?>">
 
                         <select name="date_access" class="cus-ic"  >
                             <option value="">Ngày truy cập</option>
@@ -308,13 +311,15 @@ function format_datetime($datetime_str) {
                                 <input type="hidden" name="sub" value="user-management">
                                 <input type="hidden" name="date_from" value="<?php echo esc_attr($date_from); ?>">
                                 <input type="hidden" name="date_to" value="<?php echo esc_attr($date_to); ?>">
+                                <input type="hidden" name="search" value="<?php echo esc_attr($search); ?>">
                                 <input type="hidden" name="paged" value="1">
 
                                 <select name="provider" onchange="this.form.submit()">
                                     <option value="">Nền tảng</option>
                                     <option value="<?= MTRADER_APP ?>" <?php selected($provider, MTRADER_APP); ?>>Mtrader</option>
-                                    <option value=<?= WEBTRADING ?> <?php selected($provider, WEBTRADING); ?>>BSC Webtrading</option>
-                                    <option value=<?= BSC_SMART_INVEST ?> <?php selected($provider, BSC_SMART_INVEST); ?>>BSC Smart Invest</option>
+                                    <option value="<?= WEBTRADING ?>" <?php selected($provider, WEBTRADING); ?>>BSC Webtrading</option>
+                                    <option value="<?= BSC_SMART_INVEST ?>" <?php selected($provider, BSC_SMART_INVEST); ?>>BSC Smart Invest</option>
+                                    <option value="<?= BSC_WEB ?>" <?php selected($provider, BSC_WEB); ?>>BSC Website</option>
                                 </select>
 
                                 <!-- Lọc theo trạng thái tham gia -->
@@ -332,7 +337,7 @@ function format_datetime($datetime_str) {
                                     <option value="0" <?php selected($status_active, '0'); ?>>Inactive</option>
                                 </select>
 
-                                <input type="text" name="search" placeholder="Tìm kiếm">
+                                <input type="text" name="search" placeholder="Tìm kiếm" value="<?php echo esc_attr($search); ?>">
                                 <button type="submit" class="px-3 py-2 bg-blue-500 text-white rounded-md">Tìm</button>
                             </form>
                         </div>

@@ -492,6 +492,7 @@ function bsc_game_handle_sso_callback()
   // ===== RULE: Chỉ cho phép tài khoản nội địa (prefix 002C) =====
   // 002F = tài khoản nước ngoài → chặn truy cập Gamification
   if (empty($custodycd) || substr($custodycd, 0, 4) !== '002C') {
+    
     return;
   }
 
@@ -667,7 +668,7 @@ function game_sso_require_session() {
   //   }
   // }
 
-  // return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
+  return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
 }
 
 // Hàm tính thời gian diễn ra game
