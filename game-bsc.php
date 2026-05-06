@@ -549,9 +549,9 @@ function bsc_game_handle_sso_callback()
   $custodycd    = $token_parts['part1'] ?? '';
 
   // ===== RULE: Chỉ cho phép tài khoản nội địa (prefix 002C) =====
-  // 002F = tài khoản nước ngoài → chặn truy cập Gamification
-  if (empty($custodycd) || substr($custodycd, 0, 4) !== '002C') {
-    // Đánh dấu cookie để FE biết đây là tài khoản nước ngoài
+  // SECURITY FIX: Cần validate cả format  
+  if (empty($custodycd) || substr($custodycd, 0, 4) !== '002C' || !preg_match('/^002C[a-zA-Z0-9]+$/', $custodycd)) {
+    // Đánh dấu cookie để FE biết đây là tài khoản nước ngoài hoặc invalid
     game_set_foreign_account_cookie(10800);
     return;
   }
