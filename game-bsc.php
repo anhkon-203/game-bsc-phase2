@@ -387,13 +387,13 @@ function game_set_auth_cookie($token, $ttl = 10800) {
 }
 
 /**
- * Đánh dấu cookie báo đây là tài khoản nước ngoài (không được phép chơi Gamification).
- * Cookie được PHP server đọc qua $_COOKIE để trả về error_code='foreign_account' trong API response.
+ * Đánh dấu cookie báo đây là tài khoản không hợp lệ (nước ngoài hoặc tổ chức).
+ * Cookie được PHP server đọc qua $_COOKIE để trả về error_code='invalid_account' trong API response.
  * httpOnly=true vì chỉ server cần đọc, JS không cần truy cập trực tiếp.
  */
-function game_set_foreign_account_cookie($ttl = 10800) {
+function game_set_invalid_account_cookie($ttl = 10800) {
   $expire = time() + $ttl;
-  $cookie_name = 'game_foreign_account';
+  $cookie_name = 'game_invalid_account';
   if ( PHP_VERSION_ID >= 70300 ) {
     setcookie( $cookie_name, '1', [
       'expires'  => $expire,
@@ -418,10 +418,10 @@ function game_set_foreign_account_cookie($ttl = 10800) {
 }
 
 /**
- * Xoá cookie game_foreign_account (khi user hợp lệ đăng nhập thành công).
+ * Xoá cookie game_invalid_account (khi user hợp lệ đăng nhập thành công).
  */
-function game_clear_foreign_account_cookie() {
-  $cookie_name = 'game_foreign_account';
+function game_clear_invalid_account_cookie() {
+  $cookie_name = 'game_invalid_account';
   if ( PHP_VERSION_ID >= 70300 ) {
     setcookie( $cookie_name, '', [
       'expires'  => time() - 3600,
@@ -549,15 +549,37 @@ function bsc_game_handle_sso_callback()
   $custodycd    = $token_parts['part1'] ?? '';
 
   // ===== RULE: Chỉ cho phép tài khoản nội địa (prefix 002C) =====
-  // SECURITY FIX: Cần validate cả format  
   if (empty($custodycd) || substr($custodycd, 0, 4) !== '002C' || !preg_match('/^002C[a-zA-Z0-9]+$/', $custodycd)) {
-    // Đánh dấu cookie để FE biết đây là tài khoản nước ngoài hoặc invalid
-    game_set_foreign_account_cookie(10800);
+    // Tài khoản nước ngoài hoặc format không đúng
+    game_set_invalid_account_cookie(10800);
     return;
   }
 
-  // Tài khoản hợp lệ → xoá cờ nước ngoài nếu còn tồn tại
-  game_clear_foreign_account_cookie();
+  // ===== RULE: Kiểm tra loại tài khoản (Cá nhân hay Tổ chức) =====
+  $server_api_noi_bo = get_field('cdapi_ip_address_apinoibo', 'option');
+  if (!empty($server_api_noi_bo)) {
+      $server_api_noi_bo = rtrim($server_api_noi_bo, '/');
+      $api_url_market_data = $server_api_noi_bo . '/api/MarketData/GetCustomerByCustodycd';
+      
+      $response = wp_remote_post($api_url_market_data, [
+        'body'    => ['custodycd' => $custodycd],
+        'timeout' => 10,
+      ]);
+      
+      if (!is_wp_error($response)) {
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (isset($body['s']) && $body['s'] === 'ok' && !empty($body['d'][0]['custtype'])) {
+            if ($body['d'][0]['custtype'] === 'B') {
+                // Là tài khoản tổ chức -> Chặn
+                game_set_invalid_account_cookie(10800);
+                return;
+            }
+        }
+      }
+  }
+
+  // Tài khoản hợp lệ (Cá nhân) → xoá cờ chặn nếu còn tồn tại
+  game_clear_invalid_account_cookie();
 
   // ===== Xác định provider từ utm_source cookie =====
   $utm_source_cookie = $_COOKIE['utm_source'] ?? '';
@@ -627,9 +649,10 @@ function bsc_game_sync_afacctno(int $user_id, string $access_token): void
   if (empty($trading_server) && function_exists('get_field')) {
     $trading_server = (string)(get_field('cdapi_ip_address_tradingserver', 'option') ?? '');
   }
-  // Fallback cuối: dùng URL mặc định
+
   if (empty($trading_server)) {
-    $trading_server = 'https://tradeapi-krxtduat.bsc.com.vn';
+    error_log('[BSC SSO] bsc_game_sync_afacctno: missing trading server URL');
+    return;
   }
   $trading_server = rtrim($trading_server, '/');
 
