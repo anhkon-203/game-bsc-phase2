@@ -69,6 +69,180 @@ define('BSC_SMART_INVEST', 'bsc_smart_invest');
 define('WEBTRADING', 'webtrading');
 define('BSC_WEB', 'bsc_web');
 
+// ==== Auto-login OTT: Xử lý ?ott= từ App (Mtrader, BSC Smart Invest, Webtrading) ====
+// Spec: docs/ott-one-time-token-spec.md
+add_action('init', 'game_bsc_handle_ott_auto_login', 5);
+
+/**
+ * Tự động đăng nhập khi App/Webtrading mở Webview kèm ?ott= trên URL trang game.
+ *
+ * Luồng OTT (One Time Token):
+ *   1. BSC App/Webtrading sinh mã OTT cho user đã đăng nhập.
+ *   2. Mở URL: https://domain/duong-dua-chung-si/?ott=<ma_ott>&utm_source=<app>
+ *   3. Hàm này chạy sớm (init priority 5), gọi API Token Exchange đổi OTT → access_token.
+ *   4. Set cookie access_token + transient.
+ *   5. Redirect về URL sạch (bỏ ?ott=) để tránh lộ OTT (chỉ dùng 1 lần, hạn 30-60s).
+ *   6. Sau redirect, template-home.php gọi bsc_game_handle_sso_callback() đọc cookie
+ *      và tạo game_auth_token như bình thường.
+ *
+ * Ràng buộc OTT (theo spec BSC):
+ *   - OTT chỉ dùng 1 lần, bị vô hiệu hóa sau khi đối soát.
+ *   - OTT có thời hạn cực ngắn (30-60 giây).
+ *   - Bắt buộc ghi log giao dịch đổi OTT (phục vụ đối soát).
+ */
+function game_bsc_handle_ott_auto_login() {
+    // 1. Chỉ xử lý nếu có tham số 'ott' trên URL
+    if ( ! isset($_GET['ott']) || empty($_GET['ott']) ) {
+        return;
+    }
+
+    // 2. Nếu đã đăng nhập rồi (có cookie access_token hợp lệ) → bỏ qua
+    if ( isset($_COOKIE['access_token']) && !empty($_COOKIE['access_token']) ) {
+        $key = 'user_logged_in_' . md5($_COOKIE['access_token']);
+        if ( get_transient($key) ) {
+            return; // Đã đăng nhập, không cần xử lý
+        }
+    }
+
+    // 3. Tránh xung đột: Không xử lý nếu đang ở URL callback SSO của theme
+    if (function_exists('get_field')) {
+        $callback_url = get_field('cdapi_ip_address_url_call_back', 'option');
+        if ($callback_url) {
+            $parsed = parse_url($callback_url, PHP_URL_PATH);
+            if ($parsed && strpos($_SERVER['REQUEST_URI'], $parsed) !== false) {
+                return; // Để theme callback xử lý
+            }
+        }
+    }
+
+    // 4. Đổi OTT lấy access_token (Token Exchange)
+    $ott = sanitize_text_field($_GET['ott']);
+    $exchange_result = game_bsc_exchange_ott_for_token($ott);
+
+    if ($exchange_result && !empty($exchange_result['access_token'])) {
+        $access_token = $exchange_result['access_token'];
+
+        // 5. Set cookie + transient (giống theme: customizer-api.php)
+        $expires_in = !empty($exchange_result['expires_in']) ? (int)$exchange_result['expires_in'] : 3600;
+        $key = 'user_logged_in_' . md5($access_token);
+        set_transient($key, true, $expires_in);
+        setcookie('access_token', $access_token, time() + $expires_in, COOKIEPATH, COOKIE_DOMAIN);
+
+        // Cập nhật superglobal để bsc_game_handle_sso_callback() có thể đọc ngay
+        $_COOKIE['access_token'] = $access_token;
+
+        // Log thành công (bắt buộc theo spec: ghi nhật ký giao dịch đổi OTT)
+        error_log('[Game BSC OTT] Exchange thành công. OTT=' . substr($ott, 0, 8) . '... → token set, expires_in=' . $expires_in . 's');
+
+        // 6. Redirect về URL sạch (bỏ param 'ott' để tránh lộ và reuse)
+        $clean_url = remove_query_arg('ott');
+        wp_redirect($clean_url);
+        exit;
+    }
+
+    // Nếu thất bại → log lỗi, cho user vào trang bình thường
+    // Spec: "hiển thị thông báo thân thiện" — xử lý ở FE khi API trả 401
+    $error_msg = !empty($exchange_result['error']) ? $exchange_result['error'] : 'unknown';
+    error_log('[Game BSC OTT] Exchange thất bại. OTT=' . substr($ott, 0, 8) . '... Error: ' . $error_msg);
+}
+
+/**
+ * Đổi mã OTT lấy access_token từ BSC SSO API (Token Exchange).
+ *
+ * Theo spec OTT (docs/ott-one-time-token-spec.md):
+ *   - Method: POST
+ *   - URI: <trading_server>/sso/oauth/token
+ *   - grant_type: urn:ietf:params:oauth:grant-type:token-exchange
+ *   - subject_token: <mã_OTT>
+ *   - subject_token_type: urn:ietf:params:oauth:token-type:access_token
+ *   - client_id, client_secret: do BSC cấp
+ *
+ * Response format:
+ *   - s: "ok" | "error"
+ *   - em: error message
+ *   - data: { accessToken, refreshToken, token_type, expires_in, scope }
+ *
+ * @param string $ott Mã OTT từ URL
+ * @return array|null ['access_token' => ..., 'expires_in' => ...] hoặc ['error' => ...] hoặc null
+ */
+function game_bsc_exchange_ott_for_token($ott) {
+    if (!function_exists('get_field')) {
+        error_log('[Game BSC OTT] Exchange: ACF get_field() not available.');
+        return null;
+    }
+
+    $client_id     = get_field('cdapi_ip_address_clientid', 'option');
+    $client_secret = get_field('cdapi_ip_address_clientsecret', 'option');
+    $api_url       = get_field('cdapi_ip_address_apiurl', 'option');
+
+    if (empty($client_id) || empty($client_secret) || empty($api_url)) {
+        error_log('[Game BSC OTT] Exchange: missing SSO config (client_id/secret/api_url).');
+        return null;
+    }
+
+    $token_url = rtrim($api_url, '/') . '/sso/oauth/token';
+
+    // Log request (bắt buộc theo spec: ghi nhật ký giao dịch)
+    error_log('[Game BSC OTT] Exchange request: URL=' . $token_url . ', OTT=' . substr($ott, 0, 8) . '...');
+
+    $response = wp_remote_post($token_url, [
+        'body' => [
+            'grant_type'         => 'urn:ietf:params:oauth:grant-type:token-exchange',
+            'subject_token'      => $ott,
+            'subject_token_type' => 'urn:ietf:params:oauth:token-type:access_token',
+            'client_id'          => $client_id,
+            'client_secret'      => $client_secret,
+        ],
+        'headers' => [
+            'Content-Type' => 'application/x-www-form-urlencoded',
+        ],
+        'timeout' => 15,
+    ]);
+
+    if (is_wp_error($response)) {
+        error_log('[Game BSC OTT] Exchange WP error: ' . $response->get_error_message());
+        return ['error' => $response->get_error_message()];
+    }
+
+    $http_code = (int) wp_remote_retrieve_response_code($response);
+    $raw_body  = wp_remote_retrieve_body($response);
+
+    if ($http_code < 200 || $http_code >= 300) {
+        error_log('[Game BSC OTT] Exchange HTTP ' . $http_code . ': ' . $raw_body);
+        return ['error' => 'HTTP ' . $http_code];
+    }
+
+    $data = json_decode($raw_body, true);
+
+    // Kiểm tra response format theo spec BSC: { s, em, data: { accessToken, ... } }
+    if (!is_array($data)) {
+        error_log('[Game BSC OTT] Exchange: invalid JSON response. Body: ' . $raw_body);
+        return ['error' => 'Invalid JSON'];
+    }
+
+    // Trường hợp lỗi từ BSC
+    if (isset($data['s']) && $data['s'] === 'error') {
+        $em = $data['em'] ?? 'Unknown error from BSC';
+        error_log('[Game BSC OTT] Exchange BSC error: ' . $em);
+        return ['error' => $em];
+    }
+
+    // Trường hợp thành công: s=ok, data.accessToken
+    if (isset($data['s']) && $data['s'] === 'ok' && !empty($data['data']['accessToken'])) {
+        return [
+            'access_token' => $data['data']['accessToken'],
+            'refresh_token' => $data['data']['refreshToken'] ?? null,
+            'token_type'    => $data['data']['token_type'] ?? 'Bearer',
+            'expires_in'    => $data['data']['expires_in'] ?? 3600,
+            'scope'         => $data['data']['scope'] ?? null,
+        ];
+    }
+
+    // Fallback: response format không đúng spec
+    error_log('[Game BSC OTT] Exchange: unexpected response format. Body: ' . $raw_body);
+    return ['error' => 'Unexpected response format'];
+}
+
 // ==== Khởi tạo SESSION sớm ====
 add_action('init', function () {
     // Chỉ khởi tạo session cho front-end, không phải admin

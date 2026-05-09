@@ -2636,7 +2636,7 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 
 
 /**
- * REST API để lấy danh sách vouchers và artifacts mà user đã đổi
+ * REST API để lấy danh sách vouchers mà user đã đổi
  * Endpoint: /wp-json/game-bsc/v1/my-redemptions
  * User được xác thực qua SSO session
  */
@@ -2663,6 +2663,7 @@ add_action('rest_api_init', function () {
 		),
 	));
 });
+
 
 /**
  * Callback function: Lấy danh sách vouchers và artifacts đã đổi của user hiện tại
@@ -2703,43 +2704,30 @@ function game_get_my_redemptions(WP_REST_Request $request)
 	}
 	
 	try {
-		// ===== LẤY DANH SÁCH VOUCHERS ĐÃ ĐỔI =====
+		// ===== LẤY DANH SÁCH VOUCHERS ĐÃ ĐỔI (không bao gồm hiện vật) =====
 		$vouchers = game_get_user_voucher_redemptions($user_id);
-		
-		// ===== LẤY DANH SÁCH ARTIFACTS ĐÃ ĐỔI =====
-		$artifacts = game_get_user_artifact_redemptions($user_id);
-		
-		// ===== GỘP CẢ 2 DANH SÁCH VÀ SORT THEO THỜI GIAN =====
+
 		$all_items = [];
-		
 		foreach ($vouchers['items'] as $voucher) {
 			$voucher['type'] = 'voucher';
 			$all_items[] = $voucher;
 		}
-		
-		foreach ($artifacts['items'] as $artifact) {
-			$artifact['type'] = 'artifact';
-			$all_items[] = $artifact;
-		}
-		
+
 		// Sort theo redeemed_at giảm dần (mới nhất trước)
 		usort($all_items, function ($a, $b) {
-			$time_a = strtotime($a['redeemed_at']);
-			$time_b = strtotime($b['redeemed_at']);
-			return $time_b <=> $time_a;
+			return strtotime($b['redeemed_at']) <=> strtotime($a['redeemed_at']);
 		});
-		
+
 		$total_items = count($all_items);
 		$total_pages = ceil($total_items / $per_page);
-		
+
 		if ($page > $total_pages && $total_pages > 0) {
 			return wg_json_response(400, [], __('Số trang vượt quá tổng số trang.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
-		
-		// Phân trang
+
 		$offset = ($page - 1) * $per_page;
 		$paginated_items = array_slice($all_items, $offset, $per_page);
-		
+
 		$response = array(
 			'user' => array(
 				'id' => (int)$user->id,
@@ -2756,9 +2744,9 @@ function game_get_my_redemptions(WP_REST_Request $request)
 				'has_prev' => $page > 1
 			)
 		);
-		
-		return wg_json_response(200, $response, __('Lấy danh sách quà đã đổi thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
-		
+
+		return wg_json_response(200, $response, __('Lấy danh sách voucher đã đổi thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
+
 	} catch (Throwable $e) {
 		return wg_json_response(500, [], __('Lỗi: ' . $e->getMessage(), WG_GAME_PLUGIN_TEXTDOMAIN), 500);
 	}
@@ -2954,6 +2942,276 @@ function game_get_user_artifact_redemptions($user_id)
 		'items' => $formatted,
 		'total' => count($formatted)
 	];
+}
+
+/**
+ * REST API: Màn "Đổi quà" - Lấy danh sách tất cả artifacts với thông tin user
+ * Endpoint: /wp-json/game-bsc/v1/artifacts-exchange
+ */
+add_action('rest_api_init', function () {
+	register_rest_route(NS, '/artifacts-exchange', array(
+		'methods' => 'GET',
+		'callback' => 'game_get_artifacts_exchange',
+		'permission_callback' => '__return_true',
+	));
+});
+
+/**
+ * Callback: Màn "Đổi quà"
+ * Trả về:
+ * - total_pieces: tổng mảnh ghép user đang có
+ * - artifacts: danh sách tất cả artifacts (tên, số lượng còn lại, số mảnh user đang có)
+ */
+function game_get_artifacts_exchange(WP_REST_Request $request)
+{
+	global $wpdb;
+
+	$check_nonce = game_rest_perm_cb($request);
+	if (!$check_nonce) {
+		return wg_json_response(403, [], __('Yêu cầu không hợp lệ.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	$current_user = game_sso_require_session();
+	if (is_wp_error($current_user) || empty($current_user['id'])) {
+		return wg_json_response(401, ['login_url' => bsc_game_url_sso()], __('Bạn chưa đăng nhập. Vui lòng đăng nhập để tiếp tục.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	$user_id = absint($current_user['id']);
+	$prefix  = $wpdb->prefix . 'game_';
+
+	$user = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT id, status FROM {$prefix}users WHERE id = %d",
+			$user_id
+		),
+		ARRAY_A
+	);
+
+	if (!$user || (int)$user['status'] === 0) {
+		return wg_json_response(404, [], __('Không tìm thấy người dùng hoặc tài khoản bị khóa.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	try {
+		// Tổng mảnh ghép user đang có
+		$total_pieces = game_bsc_get_user_total_pieces($user_id);
+
+		// Lấy tất cả artifacts đang mở
+		$all_artifacts = $wpdb->get_results(
+			"SELECT id, name, artifacts_url, max_redemptions, status, closed
+			 FROM {$prefix}artifacts
+			 WHERE status = 1
+			 ORDER BY id ASC",
+			ARRAY_A
+		);
+
+		// Lấy tất cả mảnh ghép user đang sở hữu (qty > 0)
+		$user_pieces_all = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT
+					up.piece_id,
+					up.artifact_id,
+					up.qty,
+					p.piece_code,
+					p.piece_img
+				FROM {$prefix}user_pieces up
+				INNER JOIN {$prefix}pieces p ON up.piece_id = p.id
+				WHERE up.user_id = %d AND up.qty > 0
+				ORDER BY up.artifact_id ASC, p.piece_code ASC",
+				$user_id
+			),
+			ARRAY_A
+		);
+
+		// Map user pieces theo artifact_id
+		$user_pieces_map = [];
+		foreach ($user_pieces_all as $up) {
+			$aid = (int)$up['artifact_id'];
+			if (!isset($user_pieces_map[$aid])) {
+				$user_pieces_map[$aid] = [];
+			}
+			$user_pieces_map[$aid][(int)$up['piece_id']] = $up;
+		}
+
+		$artifacts_list = [];
+
+		foreach ($all_artifacts as $artifact) {
+			$artifact_id = (int)$artifact['id'];
+
+			// Số lượng còn lại (global)
+			$times_redeemed = (int)$wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(id) FROM {$prefix}user_artifact_redemptions WHERE artifact_id = %d",
+					$artifact_id
+				)
+			);
+			$remaining_qty = max(0, (int)$artifact['max_redemptions'] - $times_redeemed);
+
+			// Lấy tất cả pieces của artifact này
+			$all_pieces_of_artifact = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT
+						id as piece_id,
+						piece_code,
+						piece_img
+					FROM {$prefix}pieces
+					WHERE artifact_id = %d
+					ORDER BY piece_code ASC",
+					$artifact_id
+				),
+				ARRAY_A
+			);
+
+			$pieces_formatted = [];
+			$user_pieces_count = 0;
+
+			foreach ($all_pieces_of_artifact as $piece) {
+				$piece_id = (int)$piece['piece_id'];
+				$qty = 0;
+
+				// Kiểm tra user có sở hữu mảnh này không
+				if (isset($user_pieces_map[$artifact_id][$piece_id])) {
+					$qty = (int)$user_pieces_map[$artifact_id][$piece_id]['qty'];
+					$user_pieces_count += $qty;
+				}
+
+				$pieces_formatted[] = [
+					'piece_id'   => $piece_id,
+					'piece_code' => sanitize_text_field($piece['piece_code']),
+					'piece_img'  => esc_url($piece['piece_img'] ?? ''),
+					'qty'        => $qty,
+				];
+			}
+
+			$artifacts_list[] = [
+				'artifact_id'       => $artifact_id,
+				'artifact_name'     => sanitize_text_field($artifact['name']),
+				'artifacts_url'     => esc_url($artifact['artifacts_url'] ?? ''),
+				'remaining_qty'     => $remaining_qty,
+				'user_pieces_count' => $user_pieces_count,
+				'pieces'            => $pieces_formatted,
+			];
+		}
+
+		$response = [
+			'total_pieces' => (int)$total_pieces,
+			'artifacts'    => $artifacts_list,
+		];
+
+		return wg_json_response(200, $response, __('Lấy danh sách đổi quà thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
+
+	} catch (Throwable $e) {
+		return wg_json_response(500, [], __('Lỗi: ' . $e->getMessage(), WG_GAME_PLUGIN_TEXTDOMAIN), 500);
+	}
+}
+
+/**
+ * REST API: Màn "Kho quà tặng" - Lấy danh sách artifacts user đã đổi
+ * Endpoint: /wp-json/game-bsc/v1/artifacts-inventory
+ */
+add_action('rest_api_init', function () {
+	register_rest_route(NS, '/artifacts-inventory', array(
+		'methods' => 'GET',
+		'callback' => 'game_get_artifacts_inventory',
+		'permission_callback' => '__return_true',
+	));
+});
+
+/**
+ * Callback: Màn "Kho quà tặng"
+ * Trả về:
+ * - total_artifacts_owned: tổng số hiện vật user đã đổi
+ * - total_pieces: tổng mảnh ghép user đang có
+ * - artifacts: danh sách artifacts user đã đổi (tên, số lượng còn lại, số lượng user đang sở hữu)
+ */
+function game_get_artifacts_inventory(WP_REST_Request $request)
+{
+	global $wpdb;
+
+	$check_nonce = game_rest_perm_cb($request);
+	if (!$check_nonce) {
+		return wg_json_response(403, [], __('Yêu cầu không hợp lệ.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	$current_user = game_sso_require_session();
+	if (is_wp_error($current_user) || empty($current_user['id'])) {
+		return wg_json_response(401, ['login_url' => bsc_game_url_sso()], __('Bạn chưa đăng nhập. Vui lòng đăng nhập để tiếp tục.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	$user_id = absint($current_user['id']);
+	$prefix  = $wpdb->prefix . 'game_';
+
+	$user = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT id, status FROM {$prefix}users WHERE id = %d",
+			$user_id
+		),
+		ARRAY_A
+	);
+
+	if (!$user || (int)$user['status'] === 0) {
+		return wg_json_response(404, [], __('Không tìm thấy người dùng hoặc tài khoản bị khóa.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	try {
+		// Tổng mảnh ghép user đang có
+		$total_pieces = game_bsc_get_user_total_pieces($user_id);
+
+		// Lấy danh sách artifacts user đã đổi (GROUP BY artifact_id)
+		$user_artifacts = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT
+					uar.artifact_id,
+					COUNT(*) as user_owned_qty,
+					a.name as artifact_name,
+					a.artifacts_url,
+					a.max_redemptions
+				 FROM {$prefix}user_artifact_redemptions uar
+				 INNER JOIN {$prefix}artifacts a ON uar.artifact_id = a.id
+				 WHERE uar.user_id = %d
+				 GROUP BY uar.artifact_id
+				 ORDER BY MAX(uar.redeemed_at) DESC",
+				$user_id
+			),
+			ARRAY_A
+		);
+
+		$total_artifacts_owned = 0;
+		$artifacts_list = [];
+
+		foreach ($user_artifacts as $row) {
+			$artifact_id = (int)$row['artifact_id'];
+			$user_owned_qty = (int)$row['user_owned_qty'];
+			$total_artifacts_owned += $user_owned_qty;
+
+			// Số lượng còn lại (global)
+			$times_redeemed = (int)$wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(id) FROM {$prefix}user_artifact_redemptions WHERE artifact_id = %d",
+					$artifact_id
+				)
+			);
+			$remaining_qty = max(0, (int)$row['max_redemptions'] - $times_redeemed);
+
+			$artifacts_list[] = [
+				'artifact_id'    => $artifact_id,
+				'artifact_name'  => sanitize_text_field($row['artifact_name']),
+				'artifacts_url'  => esc_url($row['artifacts_url'] ?? ''),
+				'remaining_qty'  => $remaining_qty,
+				'user_owned_qty' => $user_owned_qty,
+			];
+		}
+
+		$response = [
+			'total_artifacts_owned' => $total_artifacts_owned,
+			'total_pieces'          => (int)$total_pieces,
+			'artifacts'             => $artifacts_list,
+		];
+
+		return wg_json_response(200, $response, __('Lấy kho quà tặng thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
+
+	} catch (Throwable $e) {
+		return wg_json_response(500, [], __('Lỗi: ' . $e->getMessage(), WG_GAME_PLUGIN_TEXTDOMAIN), 500);
+	}
 }
 
 
