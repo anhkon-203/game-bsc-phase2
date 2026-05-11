@@ -2960,7 +2960,7 @@ add_action('rest_api_init', function () {
  * Callback: Màn "Đổi quà"
  * Trả về:
  * - total_pieces: tổng mảnh ghép user đang có
- * - artifacts: danh sách tất cả artifacts (tên, số lượng còn lại, số mảnh user đang có)
+ * - artifacts: hiện vật đang mở và còn trong thời hạn (period); hết đợt thì không trả về
  */
 function game_get_artifacts_exchange(WP_REST_Request $request)
 {
@@ -2995,9 +2995,9 @@ function game_get_artifacts_exchange(WP_REST_Request $request)
 		// Tổng mảnh ghép user đang có
 		$total_pieces = game_bsc_get_user_total_pieces($user_id);
 
-		// Lấy tất cả artifacts đang mở
+		// Hiện vật đang mở; lọc thêm theo period (hết đợt → không trả về)
 		$all_artifacts = $wpdb->get_results(
-			"SELECT id, name, artifacts_url, max_redemptions, status, closed
+			"SELECT id, name, artifacts_url, max_redemptions, period_start, period_end
 			 FROM {$prefix}artifacts
 			 WHERE status = 1
 			 ORDER BY id ASC",
@@ -3035,6 +3035,11 @@ function game_get_artifacts_exchange(WP_REST_Request $request)
 		$artifacts_list = [];
 
 		foreach ($all_artifacts as $artifact) {
+			$artifact_obj = (object) $artifact;
+			if (!game_artifact_is_within_period($artifact_obj)) {
+				continue;
+			}
+
 			$artifact_id = (int)$artifact['id'];
 
 			// Số lượng còn lại (global)
@@ -3121,7 +3126,7 @@ add_action('rest_api_init', function () {
  * Trả về:
  * - total_artifacts_owned: tổng số hiện vật user đã đổi
  * - total_pieces: tổng mảnh ghép user đang có
- * - artifacts: danh sách artifacts user đã đổi (tên, số lượng còn lại, số lượng user đang sở hữu)
+ * - artifacts: đã đổi (kể cả hiện vật hết thời hạn) + hiện vật chỉ có mảnh khi còn trong thời hạn period
  */
 function game_get_artifacts_inventory(WP_REST_Request $request)
 {
@@ -3156,6 +3161,71 @@ function game_get_artifacts_inventory(WP_REST_Request $request)
 		// Tổng mảnh ghép user đang có
 		$total_pieces = game_bsc_get_user_total_pieces($user_id);
 
+		// Mảnh user đang sở hữu (qty > 0), map theo artifact_id + piece_id
+		$user_pieces_all = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT
+					up.piece_id,
+					up.artifact_id,
+					up.qty,
+					p.piece_code,
+					p.piece_img
+				FROM {$prefix}user_pieces up
+				INNER JOIN {$prefix}pieces p ON up.piece_id = p.id
+				WHERE up.user_id = %d AND up.qty > 0
+				ORDER BY up.artifact_id ASC, p.piece_code ASC",
+				$user_id
+			),
+			ARRAY_A
+		);
+
+		$user_pieces_map = [];
+		foreach ($user_pieces_all as $up) {
+			$aid = (int) $up['artifact_id'];
+			if (!isset($user_pieces_map[$aid])) {
+				$user_pieces_map[$aid] = [];
+			}
+			$user_pieces_map[$aid][(int) $up['piece_id']] = $up;
+		}
+
+		$format_artifact_pieces = function ($artifact_id) use ($wpdb, $prefix, $user_pieces_map) {
+			$all_pieces_of_artifact = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT
+						id as piece_id,
+						piece_code,
+						piece_img
+					FROM {$prefix}pieces
+					WHERE artifact_id = %d
+					ORDER BY piece_code ASC",
+					$artifact_id
+				),
+				ARRAY_A
+			);
+
+			$pieces_formatted   = [];
+			$user_pieces_count = 0;
+
+			foreach ($all_pieces_of_artifact as $piece) {
+				$piece_id = (int) $piece['piece_id'];
+				$qty      = 0;
+
+				if (isset($user_pieces_map[ $artifact_id ][ $piece_id ])) {
+					$qty = (int) $user_pieces_map[ $artifact_id ][ $piece_id ]['qty'];
+					$user_pieces_count += $qty;
+				}
+
+				$pieces_formatted[] = [
+					'piece_id'   => $piece_id,
+					'piece_code' => sanitize_text_field($piece['piece_code']),
+					'piece_img'  => esc_url($piece['piece_img'] ?? ''),
+					'qty'        => $qty,
+				];
+			}
+
+			return [ $pieces_formatted, $user_pieces_count ];
+		};
+
 		// Lấy danh sách artifacts user đã đổi (GROUP BY artifact_id)
 		$user_artifacts = $wpdb->get_results(
 			$wpdb->prepare(
@@ -3168,7 +3238,7 @@ function game_get_artifacts_inventory(WP_REST_Request $request)
 				 FROM {$prefix}user_artifact_redemptions uar
 				 INNER JOIN {$prefix}artifacts a ON uar.artifact_id = a.id
 				 WHERE uar.user_id = %d
-				 GROUP BY uar.artifact_id
+				 GROUP BY uar.artifact_id, a.name, a.artifacts_url, a.max_redemptions
 				 ORDER BY MAX(uar.redeemed_at) DESC",
 				$user_id
 			),
@@ -3176,34 +3246,83 @@ function game_get_artifacts_inventory(WP_REST_Request $request)
 		);
 
 		$total_artifacts_owned = 0;
-		$artifacts_list = [];
+		$artifacts_list        = [];
+		$seen_artifact_ids     = [];
 
 		foreach ($user_artifacts as $row) {
-			$artifact_id = (int)$row['artifact_id'];
-			$user_owned_qty = (int)$row['user_owned_qty'];
+			$artifact_id = (int) $row['artifact_id'];
+			$user_owned_qty = (int) $row['user_owned_qty'];
 			$total_artifacts_owned += $user_owned_qty;
+			$seen_artifact_ids[ $artifact_id ] = true;
 
 			// Số lượng còn lại (global)
-			$times_redeemed = (int)$wpdb->get_var(
+			$times_redeemed = (int) $wpdb->get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(id) FROM {$prefix}user_artifact_redemptions WHERE artifact_id = %d",
 					$artifact_id
 				)
 			);
-			$remaining_qty = max(0, (int)$row['max_redemptions'] - $times_redeemed);
+			$remaining_qty = max(0, (int) $row['max_redemptions'] - $times_redeemed);
+
+			list($pieces_formatted, $user_pieces_count) = $format_artifact_pieces($artifact_id);
 
 			$artifacts_list[] = [
-				'artifact_id'    => $artifact_id,
-				'artifact_name'  => sanitize_text_field($row['artifact_name']),
-				'artifacts_url'  => esc_url($row['artifacts_url'] ?? ''),
-				'remaining_qty'  => $remaining_qty,
-				'user_owned_qty' => $user_owned_qty,
+				'artifact_id'         => $artifact_id,
+				'artifact_name'       => sanitize_text_field($row['artifact_name']),
+				'artifacts_url'       => esc_url($row['artifacts_url'] ?? ''),
+				'remaining_qty'       => $remaining_qty,
+				'user_owned_qty'      => $user_owned_qty,
+				'user_pieces_count'   => $user_pieces_count,
+				'pieces'              => $pieces_formatted,
+			];
+		}
+
+		// Hiện vật chỉ có mảnh (chưa đổi): hết thời hạn period thì không trả về (đã đổi vẫn hiện ở vòng lặp trên)
+		foreach (array_keys($user_pieces_map) as $artifact_id) {
+			if (!empty($seen_artifact_ids[ $artifact_id ])) {
+				continue;
+			}
+
+			$artifact = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT id, name, artifacts_url, max_redemptions, period_start, period_end FROM {$prefix}artifacts WHERE id = %d",
+					$artifact_id
+				),
+				ARRAY_A
+			);
+
+			if (!$artifact) {
+				continue;
+			}
+
+			if (!game_artifact_is_within_period((object) $artifact)) {
+				continue;
+			}
+
+			$times_redeemed = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(id) FROM {$prefix}user_artifact_redemptions WHERE artifact_id = %d",
+					$artifact_id
+				)
+			);
+			$remaining_qty = max(0, (int) $artifact['max_redemptions'] - $times_redeemed);
+
+			list($pieces_formatted, $user_pieces_count) = $format_artifact_pieces($artifact_id);
+
+			$artifacts_list[] = [
+				'artifact_id'         => $artifact_id,
+				'artifact_name'       => sanitize_text_field($artifact['name']),
+				'artifacts_url'       => esc_url($artifact['artifacts_url'] ?? ''),
+				'remaining_qty'       => $remaining_qty,
+				'user_owned_qty'      => 0,
+				'user_pieces_count'   => $user_pieces_count,
+				'pieces'              => $pieces_formatted,
 			];
 		}
 
 		$response = [
 			'total_artifacts_owned' => $total_artifacts_owned,
-			'total_pieces'          => (int)$total_pieces,
+			'total_pieces'          => (int) $total_pieces,
 			'artifacts'             => $artifacts_list,
 		];
 
