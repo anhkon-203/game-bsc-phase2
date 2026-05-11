@@ -403,7 +403,7 @@ function game_missions_check(WP_REST_Request $request)
 						[
 							'user_id'       => absint($current_user['id']),
 							'mission_code'  => sanitize_text_field($mission_code),
-							'mission_date'  => game_now(),
+							'mission_date'  => game_now('date'),
 							'reward_type'   => 'PLAY_CREDIT',
 							'reward_value'  => absint($actual_reward_spins),
 							'status'        => 'VERIFIED',
@@ -504,7 +504,7 @@ function game_missions_check(WP_REST_Request $request)
 						[
 							'user_id'       => absint($current_user['id']),
 							'mission_code'  => sanitize_text_field($mission_code),
-							'mission_date'  => game_now(),
+							'mission_date'  => game_now('date'),
 							'reward_type'   => 'PLAY_CREDIT',
 							'reward_value'  => absint($reward_spins),
 							'status'        => 'VERIFIED',
@@ -1064,7 +1064,7 @@ function game_check_existing_missions_once($user_id, $exist_check_task_codes, $s
 				[
 					'user_id'       => absint($user_id),
 					'mission_code'  => sanitize_text_field($mission_code),
-					'mission_date'  => game_now(),
+					'mission_date'  => game_now('date'),
 					'reward_type'   => 'PLAY_CREDIT',
 					'reward_value'  => 0, // 0 điểm
 					'status'        => 'VERIFIED',
