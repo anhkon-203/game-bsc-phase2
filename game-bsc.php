@@ -1322,12 +1322,13 @@ function save_user_daily_login_mission() {
   $result_ledger = $wpdb->insert(
     $ledger_table,
     [
-      'user_id'  => $user_id,
-      'delta'    => $mission_reward,
-      'ref_type' => 'MISSION',
-      'ref_id'   => $mission_id,
+      'user_id'    => $user_id,
+      'delta'      => $mission_reward,
+      'ref_type'   => 'MISSION',
+      'ref_id'     => $mission_id,
+      'created_at' => game_now(),
     ],
-    ['%d', '%d', '%s', '%d']
+    ['%d', '%d', '%s', '%d', '%s']
   );
   if (!$result_ledger) {
     $wpdb->query('ROLLBACK');
