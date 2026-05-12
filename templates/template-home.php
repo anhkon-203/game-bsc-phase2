@@ -12,16 +12,146 @@ $iframe_src = rest_url('game-bsc/init');
 <iframe id="next_iframe" src="<?php echo $iframe_src; ?>" style="width: 100%; height: 100vh; border: none; overflow:hidden" > </iframe>
 
 <script>
+    let scrollAnimId = null;
+    let lastScrollAt = 0;
+    let hasAutoScrolled = false;
+    let heightReadyTimer = null;
+    let firstHeightSeenAt = 0;
+    let lastHeightUpdatedAt = 0;
+    let latestIframeHeight = 0;
+
+    const RENDER_MIN_WAIT_MS = 2800; // chờ tối thiểu để UI render đủ
+    const HEIGHT_QUIET_MS = 1400;    // chiều cao phải đứng yên trong khoảng này
+
+    function easeInOutCubic(t) {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+
+    function smoothScrollTo(targetY, duration = 1100) {
+        const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
+        const deltaY = targetY - startY;
+        if (Math.abs(deltaY) < 2) return;
+
+        if (scrollAnimId) {
+            cancelAnimationFrame(scrollAnimId);
+            scrollAnimId = null;
+        }
+
+        const startTime = performance.now();
+        const step = (now) => {
+            const elapsed = now - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const eased = easeInOutCubic(progress);
+            window.scrollTo(0, startY + deltaY * eased);
+            if (progress < 1) {
+                scrollAnimId = requestAnimationFrame(step);
+            } else {
+                scrollAnimId = null;
+            }
+        };
+
+        scrollAnimId = requestAnimationFrame(step);
+    }
+
+    function scrollIframeToCenter(options = {}) {
+        const iframe_next = document.getElementById("next_iframe");
+        if (!iframe_next) return;
+
+        const force = options.force === true;
+        const duration = Number.isFinite(options.duration) ? options.duration : 1100;
+        const now = Date.now();
+        if (!force && now - lastScrollAt < 900) return; // chống giật do trigger dồn
+        lastScrollAt = now;
+
+        const rect = iframe_next.getBoundingClientRect();
+        const absoluteTop = (window.pageYOffset || document.documentElement.scrollTop || 0) + rect.top;
+        const targetY = Math.max(0, absoluteTop - (window.innerHeight / 2) + (rect.height / 2));
+        smoothScrollTo(targetY, duration);
+    }
+
+    function emitScrollToElementReady() {
+        const payload = {
+            type: "scrollToElementReady",
+            scrollToElementReady: true,
+            source: "host_auto_scroll"
+        };
+
+        // Trigger trực tiếp cho listener trên host page
+        window.postMessage(payload, "*");
+
+        // Gửi thêm vào iframe để tương thích nếu frontend con có listener riêng
+        const iframe_next = document.getElementById("next_iframe");
+        if (iframe_next && iframe_next.contentWindow) {
+            iframe_next.contentWindow.postMessage(payload, "*");
+        }
+    }
+
+    function autoScrollOnEnter() {
+        if (hasAutoScrolled) return;
+        hasAutoScrolled = true;
+        scrollIframeToCenter({ force: true, duration: 1200 });
+    }
+
+    function scheduleScrollWhenGameReady(iframeHeight) {
+        if (hasAutoScrolled) return;
+        const h = Number(iframeHeight);
+        if (!h || h <= 0) return;
+
+        const now = Date.now();
+        if (!firstHeightSeenAt) {
+            firstHeightSeenAt = now;
+        }
+        lastHeightUpdatedAt = now;
+        latestIframeHeight = h;
+
+        if (heightReadyTimer) {
+            clearTimeout(heightReadyTimer);
+            heightReadyTimer = null;
+        }
+
+        function checkReadyAndEmit() {
+            if (hasAutoScrolled) return;
+            if (!firstHeightSeenAt || !lastHeightUpdatedAt || latestIframeHeight <= 0) return;
+
+            const checkNow = Date.now();
+            const waitRender = Math.max(0, RENDER_MIN_WAIT_MS - (checkNow - firstHeightSeenAt));
+            const waitQuiet = Math.max(0, HEIGHT_QUIET_MS - (checkNow - lastHeightUpdatedAt));
+            const waitMs = Math.max(waitRender, waitQuiet);
+
+            if (waitMs > 0) {
+                heightReadyTimer = setTimeout(checkReadyAndEmit, waitMs + 50);
+                return;
+            }
+
+            emitScrollToElementReady();
+        }
+
+        checkReadyAndEmit();
+    }
+
     window.addEventListener("message", function (event) {
         const iframe_next = document.getElementById("next_iframe");
         if (event.data && event.data.iframeHeight) {
             iframe_next.style.height = event.data.iframeHeight + "px";
+            scheduleScrollWhenGameReady(event.data.iframeHeight);
         }
         if(event.data && event.data.cstd_callapi_authen) {
             window.location.href = event.data.cstd_callapi_authen;
         }
-        if(event.data && event.data.scrollToElement) {
-            iframe_next.scrollIntoView({ behavior: "smooth", block: "end", inline: "nearest" });
+        const isScrollReadyEvent = !!(
+            event.data &&
+            (event.data.scrollToElementReady || event.data.type === "scrollToElementReady") &&
+            event.data.source === "host_auto_scroll"
+        );
+        if (isScrollReadyEvent) {
+            if (!hasAutoScrolled) {
+                autoScrollOnEnter();
+            }
+            return;
+        }
+
+        if (event.data && event.data.scrollToElement) {
+            scrollIframeToCenter({ duration: 1000 });
         }
         if(event.data && event.data.postBackLogout) {
             const win = window.open(event.data.postBackLogout, "sso", "width=450,height=600");

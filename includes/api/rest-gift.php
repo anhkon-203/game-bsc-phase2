@@ -2436,11 +2436,6 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 			return wg_json_response(422, [], __('Hiện vật này đã hết suất đổi quà.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
 
-		// 1 user chỉ được nhận 1 hiện vật trong toàn chương trình.
-		if (game_user_has_completed_artifact((int) $user_id)) {
-			return wg_json_response(422, [], __('Bạn đã nhận hiện vật trong chương trình, không thể nhận thêm.', WG_GAME_PLUGIN_TEXTDOMAIN));
-		}
-
 		$artifact_obj = (object) $artifact;
 		if (!game_artifact_is_within_period($artifact_obj)) {
 			return wg_json_response(422, [], __('Hiện vật này đang ngoài thời gian diễn ra.', WG_GAME_PLUGIN_TEXTDOMAIN));
@@ -2448,7 +2443,7 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 
 		$current_period = game_artifact_current_period($artifact_obj);
 		if ($current_period !== false && !game_artifact_period_has_quota($artifact_obj, $current_period)) {
-			return wg_json_response(422, [], __('Hiện vật đã hết quota trong kỳ hiện tại.', WG_GAME_PLUGIN_TEXTDOMAIN));
+			return wg_json_response(422, [], __('Hiện vật này hiện không khả dụng để đổi.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
 		
 		// ===== 2. LẤY DANH SÁCH MẢNH CỦA ARTIFACT =====
