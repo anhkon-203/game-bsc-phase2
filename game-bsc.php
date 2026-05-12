@@ -1205,8 +1205,7 @@ function save_user_daily_login_mission() {
   
   $user_id = absint($user['id']);
   $table_missions = $wpdb->prefix . 'game_user_mission_logs';
-  $tz = TIMEZONE;
-  $today = (new DateTimeImmutable('now', $tz))->format('Y-m-d');
+  $today = game_now('date');
 
   // Check nếu đã hết thời gian diễn ra game thì return false
   $game_period = game_bsc_compute_day_index();
