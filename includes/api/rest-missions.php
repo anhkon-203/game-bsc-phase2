@@ -888,6 +888,7 @@ function game_missions_check_all(WP_REST_Request $request){
 		
 		try {
 			$now = game_now();
+			$today_date = game_now('date');
 			$mission_log_values = [];
 			$ledger_values = [];
 			
@@ -896,7 +897,7 @@ function game_missions_check_all(WP_REST_Request $request){
 				$reward_spins = absint($op['reward_spins']);
 				$api_payload = $wpdb->_real_escape(wp_json_encode($op['response']));
 				
-				$mission_log_values[] = "({$user_id}, '{$mission_code}', '{$now}', 'PLAY_CREDIT', {$reward_spins}, 'VERIFIED', '{$now}', 1, 0, '{$api_payload}')";
+				$mission_log_values[] = "({$user_id}, '{$mission_code}', '{$today_date}', 'PLAY_CREDIT', {$reward_spins}, 'VERIFIED', '{$now}', 1, 0, '{$api_payload}')";
 			}
 			
 			// Bulk insert mission logs
