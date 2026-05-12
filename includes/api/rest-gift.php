@@ -640,13 +640,7 @@ function game_bsc_get_gifts_mechanism(WP_REST_Request $request) {
 		$points_balance = $points_balance !== null ? (int)$points_balance : 0;
 		
 		// ===== 5. LẤY SỐ MẢNH HIỆN CÓ (TỔNG QTY) =====
-		$total_pieces = $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT COALESCE(SUM(qty), 0) FROM {$prefix}user_pieces WHERE user_id = %d",
-				$user_id
-			)
-		);
-		$total_pieces = (int)$total_pieces;
+		$total_pieces = game_bsc_sum_valid_user_pieces($user_id);
 		
 		// ===== 6. CHUẨN BỊ RESPONSE =====
 		$response_data = [
@@ -769,14 +763,14 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 			];
 		}
 
-		$args['posts_per_page'] = $per_page;
-		$args['paged'] = $page;
-		$args['no_found_rows'] = false;
+		// Query toàn bộ rồi filter hạn dùng ở PHP để pagination khớp với dữ liệu hiển thị.
+		$args['posts_per_page'] = -1;
+		$args['no_found_rows'] = true;
 
 		$query_result = new WP_Query($args);
 		$all_vouchers = $query_result->posts;
-		$query_total_items = (int) $query_result->found_posts;
-		$query_total_pages = (int) $query_result->max_num_pages;
+		$query_total_items = (int) $query_result->post_count;
+		$query_total_pages = $query_total_items > 0 ? 1 : 0;
 
 		// Fallback: nếu taxonomy relation bị thiếu nhưng voucher vẫn có meta Got It category id,
 		// lọc theo `_game_bsc_gotit_category_id` để tránh mất dữ liệu khi truy vấn theo danh mục.
@@ -796,8 +790,8 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 
 			$fallback_query = new WP_Query($fallback_args);
 			$all_vouchers = $fallback_query->posts;
-			$query_total_items = (int) $fallback_query->found_posts;
-			$query_total_pages = (int) $fallback_query->max_num_pages;
+			$query_total_items = (int) $fallback_query->post_count;
+			$query_total_pages = $query_total_items > 0 ? 1 : 0;
 		}
 
 		if (empty($all_vouchers)) {
@@ -924,7 +918,16 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 			}
 
 			// Kiểm tra còn số lượng không
+			if (!$is_valid_time) {
+				continue;
+			}
+
 			$is_available = (int)$quantity > (int)$redemption_count;
+
+			// 1. Voucher BSC đã hết số lượng: ẩn, không hiển thị
+			if (!$is_available) {
+				continue;
+			}
 
 			// Format thumbnail URL
 			$thumbnail_url = '';
@@ -952,9 +955,10 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 				'quantity' => (int)$quantity,
 				'quantity_remaining' => max(0, (int)$quantity - (int)$redemption_count),
 				'is_active' => (bool)$is_active,
+				// 2. Chưa đổi thì chưa có hạn sử dụng
 				'validity' => [
-					'valid_from' => $valid_from ?: null,
-					'valid_to' => $valid_to ?: null,
+					'valid_from' => null,
+					'valid_to'   => null,
 				],
 				'is_valid_time' => $is_valid_time,
 				'is_available' => $is_available,
@@ -976,17 +980,20 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 			? __('Lấy danh sách voucher Got It thành công.', WG_GAME_PLUGIN_TEXTDOMAIN)
 			: __('Lấy danh sách voucher thành công.', WG_GAME_PLUGIN_TEXTDOMAIN);
 
-		$total_items = max(0, (int) $query_total_items);
-		$total_pages = max(0, (int) $query_total_pages);
+		$total_items = count($formatted_vouchers);
+		$total_pages = $total_items > 0 ? (int) ceil($total_items / $per_page) : 0;
 
 		if ($total_pages > 0 && $page > $total_pages) {
 			return wg_json_response(400, [], __('Số trang vượt quá tổng số trang.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
 
+		$offset = ($page - 1) * $per_page;
+		$paged_vouchers = array_slice(array_values($formatted_vouchers), $offset, $per_page);
+
 		return wg_json_response(
 			200,
 			[
-				'vouchers' => array_values($formatted_vouchers),
+				'vouchers' => $paged_vouchers,
 				'pagination' => [
 					'current_page' => $page,
 					'per_page' => $per_page,
@@ -3247,13 +3254,13 @@ function game_get_artifacts_inventory(WP_REST_Request $request)
 
 		$total_artifacts_owned = 0;
 		$artifacts_list        = [];
-		$seen_artifact_ids     = [];
+		
 
 		foreach ($user_artifacts as $row) {
 			$artifact_id = (int) $row['artifact_id'];
 			$user_owned_qty = (int) $row['user_owned_qty'];
 			$total_artifacts_owned += $user_owned_qty;
-			$seen_artifact_ids[ $artifact_id ] = true;
+			
 
 			// Số lượng còn lại (global)
 			$times_redeemed = (int) $wpdb->get_var(
@@ -3264,61 +3271,16 @@ function game_get_artifacts_inventory(WP_REST_Request $request)
 			);
 			$remaining_qty = max(0, (int) $row['max_redemptions'] - $times_redeemed);
 
-			list($pieces_formatted, $user_pieces_count) = $format_artifact_pieces($artifact_id);
-
 			$artifacts_list[] = [
 				'artifact_id'         => $artifact_id,
 				'artifact_name'       => sanitize_text_field($row['artifact_name']),
 				'artifacts_url'       => esc_url($row['artifacts_url'] ?? ''),
 				'remaining_qty'       => $remaining_qty,
 				'user_owned_qty'      => $user_owned_qty,
-				'user_pieces_count'   => $user_pieces_count,
-				'pieces'              => $pieces_formatted,
 			];
 		}
 
-		// Hiện vật chỉ có mảnh (chưa đổi): hết thời hạn period thì không trả về (đã đổi vẫn hiện ở vòng lặp trên)
-		foreach (array_keys($user_pieces_map) as $artifact_id) {
-			if (!empty($seen_artifact_ids[ $artifact_id ])) {
-				continue;
-			}
-
-			$artifact = $wpdb->get_row(
-				$wpdb->prepare(
-					"SELECT id, name, artifacts_url, max_redemptions, period_start, period_end FROM {$prefix}artifacts WHERE id = %d",
-					$artifact_id
-				),
-				ARRAY_A
-			);
-
-			if (!$artifact) {
-				continue;
-			}
-
-			if (!game_artifact_is_within_period((object) $artifact)) {
-				continue;
-			}
-
-			$times_redeemed = (int) $wpdb->get_var(
-				$wpdb->prepare(
-					"SELECT COUNT(id) FROM {$prefix}user_artifact_redemptions WHERE artifact_id = %d",
-					$artifact_id
-				)
-			);
-			$remaining_qty = max(0, (int) $artifact['max_redemptions'] - $times_redeemed);
-
-			list($pieces_formatted, $user_pieces_count) = $format_artifact_pieces($artifact_id);
-
-			$artifacts_list[] = [
-				'artifact_id'         => $artifact_id,
-				'artifact_name'       => sanitize_text_field($artifact['name']),
-				'artifacts_url'       => esc_url($artifact['artifacts_url'] ?? ''),
-				'remaining_qty'       => $remaining_qty,
-				'user_owned_qty'      => 0,
-				'user_pieces_count'   => $user_pieces_count,
-				'pieces'              => $pieces_formatted,
-			];
-		}
+		// Business rule: "Kho qua tang" chi hien thi hien vat user da doi thanh cong.
 
 		$response = [
 			'total_artifacts_owned' => $total_artifacts_owned,
@@ -3385,7 +3347,7 @@ function game_get_user_pieces(WP_REST_Request $request) {
 			$prefix = $wpdb->prefix . 'game_';
 			$artifact = $wpdb->get_row(
 				$wpdb->prepare(
-					"SELECT id as artifact_id, name as artifact_name, artifacts_url, max_redemptions, status FROM {$prefix}artifacts WHERE id = %d",
+					"SELECT id as artifact_id, id, name as artifact_name, artifacts_url, max_redemptions, status, period_start, period_end, total_periods, max_redemptions_per_period FROM {$prefix}artifacts WHERE id = %d",
 					$artifact_id
 				),
 				ARRAY_A
@@ -3393,7 +3355,15 @@ function game_get_user_pieces(WP_REST_Request $request) {
 			if (!$artifact) {
 				return wg_json_response(404, [], __('Không tìm thấy hiện vật.', WG_GAME_PLUGIN_TEXTDOMAIN));
 			}
-			
+
+			// Kiểm tra game + period
+			$game_period_check = game_bsc_compute_day_index();
+			$game_active_check = ($game_period_check['status'] ?? '') !== 'ended'
+				&& ($game_period_check['status'] ?? '') !== 'not_started';
+			if (!$game_active_check || !game_artifact_is_within_period((object)$artifact)) {
+				return wg_json_response(403, [], __('Hiện vật đã hết hạn hoặc game đã kết thúc.', WG_GAME_PLUGIN_TEXTDOMAIN));
+			}
+
 			// user pieces for this artifact
 			$user_pieces = $wpdb->get_results(
 				$wpdb->prepare(
@@ -3402,7 +3372,7 @@ function game_get_user_pieces(WP_REST_Request $request) {
 						up.artifact_id,
 						up.qty,
 						p.piece_code,
-						p.baseline_weight,
+							p.baseline_weight,
 						p.piece_img
 					FROM {$prefix}user_pieces up
 					INNER JOIN {$prefix}pieces p ON up.piece_id = p.id
@@ -3470,6 +3440,11 @@ function game_get_user_pieces(WP_REST_Request $request) {
 			return wg_json_response(200, $response, __('Lấy danh sách mảnh ghép thành công.'));
 		}
 		
+		// ===== 2b. KIỂM TRA GAME CÒN ĐANG DIỄN RA =====
+		$game_period = game_bsc_compute_day_index();
+		$game_active = in_array($game_period['status'] ?? '', ['ongoing', 'active', 'started'], true)
+			|| (isset($game_period['status']) && $game_period['status'] !== 'ended' && $game_period['status'] !== 'not_started');
+
 		// ===== 3. LẤY TẤT CẢ HIỆN VẬT TRONG HỆ THỐNG =====
 		$all_artifacts = $wpdb->get_results(
 			"SELECT
@@ -3477,7 +3452,11 @@ function game_get_user_pieces(WP_REST_Request $request) {
 				a.name as artifact_name,
 				a.artifacts_url,
 				a.max_redemptions,
-				a.status
+				a.status,
+				a.period_start,
+				a.period_end,
+				a.total_periods,
+				a.max_redemptions_per_period
 			FROM {$prefix}artifacts a
 			ORDER BY a.id ASC",
 			ARRAY_A
@@ -3524,9 +3503,18 @@ function game_get_user_pieces(WP_REST_Request $request) {
 		
 		// ===== 5. NHÓM DỮ LIỆU THEO HIỆN VẬT =====
 		$artifacts_list = [];
-		
+
 		foreach ($all_artifacts as $artifact) {
 			$artifact_id = (int)$artifact['artifact_id'];
+
+			// Chuyển array → object để dùng helper
+			$artifact_obj = (object)$artifact;
+			$artifact_obj->id = $artifact_id;
+
+			// Bỏ qua nếu: game không còn diễn ra HOẶC hiện vật ngoài thời hạn
+			if (!$game_active || !game_artifact_is_within_period($artifact_obj)) {
+				continue;
+			}
 			
 			$artifact_data = [
 				'artifact_id' => $artifact_id,

@@ -2,6 +2,27 @@
 if (!defined('ABSPATH')) exit;
 
 /**
+ * Chỉ tính các mảnh còn join hợp lệ với artifact + piece hiện có.
+ * Tránh cộng cả dữ liệu mồ côi khi artifact/piece đã bị xóa.
+ */
+function game_bsc_sum_valid_user_pieces($user_id) {
+	global $wpdb;
+	$prefix = $wpdb->prefix . 'game_';
+	$user_id = (int) $user_id;
+
+	return (int) $wpdb->get_var(
+		$wpdb->prepare(
+			"SELECT COALESCE(SUM(up.qty), 0)
+			 FROM {$prefix}user_pieces up
+			 INNER JOIN {$prefix}artifacts a ON a.id = up.artifact_id
+			 INNER JOIN {$prefix}pieces p ON p.id = up.piece_id AND p.artifact_id = up.artifact_id
+			 WHERE up.user_id = %d",
+			$user_id
+		)
+	);
+}
+
+/**
  * Helper lấy điểm và mảnh của user hiện tại (qua SSO)
  *
  * @return array {
@@ -46,13 +67,7 @@ function game_bsc_get_user_inventory($user_id = null) {
 		$points = $points !== null ? (int) $points : 0;
 		
 		// Lấy tổng số mảnh
-		$total_pieces = $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT COALESCE(SUM(qty), 0) FROM {$prefix}user_pieces WHERE user_id = %d",
-				$user_id
-			)
-		);
-		$total_pieces = (int) $total_pieces;
+		$total_pieces = game_bsc_sum_valid_user_pieces($user_id);
 		
 		// Lấy chi tiết từng mảnh (kèm thông tin hiện vật)
 		$pieces_detail = $wpdb->get_results(
@@ -155,14 +170,7 @@ function game_bsc_get_user_total_pieces($user_id = null) {
 		$user_id = (int) $user_id;
 	}
 	
-	$total = $wpdb->get_var(
-		$wpdb->prepare(
-			"SELECT COALESCE(SUM(qty), 0) FROM {$prefix}user_pieces WHERE user_id = %d",
-			$user_id
-		)
-	);
-	
-	return (int) $total;
+	return game_bsc_sum_valid_user_pieces($user_id);
 }
 
 /**

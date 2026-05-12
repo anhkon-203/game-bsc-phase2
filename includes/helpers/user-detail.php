@@ -30,13 +30,7 @@ function game_bsc_get_user_details($user_id) {
 		);
 		$total_points = (int)$total_points;
 		
-		$total_pieces = $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT COALESCE(SUM(qty), 0) FROM {$prefix}user_pieces WHERE user_id = %d",
-				$user_id
-			)
-		);
-		$total_pieces = (int)$total_pieces;
+		$total_pieces = game_bsc_sum_valid_user_pieces($user_id);
 		
 		$game_day_info = game_bsc_compute_day_index_v2($user_id);
 		$current_day_index = (int)$game_day_info['day_index'];
