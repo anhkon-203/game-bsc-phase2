@@ -2441,10 +2441,10 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 			return wg_json_response(422, [], __('Hiện vật này đang ngoài thời gian diễn ra.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
 
-		$current_period = game_artifact_current_period($artifact_obj);
-		if ($current_period !== false && !game_artifact_period_has_quota($artifact_obj, $current_period)) {
-			return wg_json_response(422, [], __('Hiện vật này hiện không khả dụng để đổi.', WG_GAME_PLUGIN_TEXTDOMAIN));
-		}
+		// $current_period = game_artifact_current_period($artifact_obj);
+		// if ($current_period !== false && !game_artifact_period_has_quota($artifact_obj, $current_period)) {
+		// 	return wg_json_response(422, [], __('Hiện vật này hiện không khả dụng để đổi.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		// }
 		
 		// ===== 2. LẤY DANH SÁCH MẢNH CỦA ARTIFACT =====
 		$pieces = $wpdb->get_results(
@@ -2474,7 +2474,7 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 		);
 		
 		if (count($user_pieces) < 4) {
-			return wg_json_response(422, [], __('Bạn chưa có đủ 4 mảnh của hiện vật này.', WG_GAME_PLUGIN_TEXTDOMAIN));
+			return wg_json_response(422, [], __('Hiện tại bạn chưa có đủ 4 mảnh để đổi hiện vật này.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
 		
 		// Kiểm tra mỗi mảnh phải có qty >= 1

@@ -27,6 +27,74 @@ $now = new DateTimeImmutable('now', $tz);
 // ===== XỬ LÝ ACTION =====
 $message = '';
 $message_type = '';
+$active_tab = 'tab-drops';
+$bsc_external_result = null;
+$bsc_external_form = [
+    'base' => 'apinoibo',
+    'endpoint' => '/api/MarketData/GetCustomerByCustodycd',
+    'method' => 'POST',
+    'stk' => '',
+    'stk_param' => 'custodycd',
+    'stk_location' => 'body',
+    'body_type' => 'form',
+    'body' => '{"custodycd":"{{stk}}"}',
+    'headers' => '',
+    'use_access_token' => '0',
+    'timeout' => '15',
+];
+
+if (!function_exists('game_bsc_test_replace_placeholders')) {
+    function game_bsc_test_replace_placeholders($value, $stk) {
+        if (is_array($value)) {
+            foreach ($value as $key => $item) {
+                $value[$key] = game_bsc_test_replace_placeholders($item, $stk);
+            }
+            return $value;
+        }
+
+        if (is_string($value)) {
+            return str_replace('{{stk}}', $stk, $value);
+        }
+
+        return $value;
+    }
+}
+
+if (!function_exists('game_bsc_test_parse_headers')) {
+    function game_bsc_test_parse_headers($raw_headers) {
+        $headers = [];
+        $raw_headers = trim((string)$raw_headers);
+
+        if ($raw_headers === '') {
+            return $headers;
+        }
+
+        $json_headers = json_decode($raw_headers, true);
+        if (is_array($json_headers)) {
+            foreach ($json_headers as $key => $value) {
+                $key = trim((string)$key);
+                if ($key !== '') {
+                    $headers[$key] = (string)$value;
+                }
+            }
+            return $headers;
+        }
+
+        foreach (preg_split('/\r\n|\r|\n/', $raw_headers) as $line) {
+            if (strpos($line, ':') === false) {
+                continue;
+            }
+
+            [$key, $value] = explode(':', $line, 2);
+            $key = trim($key);
+            if ($key !== '') {
+                $headers[$key] = trim($value);
+            }
+        }
+
+        return $headers;
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // Verify nonce
@@ -122,6 +190,136 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $message = "Đã tạo {$created}/{$count} user test.";
         $message_type = 'success';
     }
+
+    if ($action === 'bsc_external_api_call') {
+        $active_tab = 'tab-api';
+        $bsc_external_form = [
+            'base' => sanitize_key($_POST['bsc_base'] ?? 'apinoibo'),
+            'endpoint' => trim((string)wp_unslash($_POST['bsc_endpoint'] ?? '')),
+            'method' => strtoupper(sanitize_text_field($_POST['bsc_method'] ?? 'GET')),
+            'stk' => sanitize_text_field(wp_unslash($_POST['bsc_stk'] ?? '')),
+            'stk_param' => sanitize_key($_POST['bsc_stk_param'] ?? 'custodycd'),
+            'stk_location' => sanitize_key($_POST['bsc_stk_location'] ?? 'body'),
+            'body_type' => sanitize_key($_POST['bsc_body_type'] ?? 'form'),
+            'body' => (string)wp_unslash($_POST['bsc_body'] ?? ''),
+            'headers' => (string)wp_unslash($_POST['bsc_headers'] ?? ''),
+            'use_access_token' => !empty($_POST['bsc_use_access_token']) ? '1' : '0',
+            'timeout' => (string)min(max((int)($_POST['bsc_timeout'] ?? 15), 1), 60),
+        ];
+
+        $base_urls = [
+            'apiurl' => (string)get_field('cdapi_ip_address_apiurl', 'option'),
+            'apinoibo' => (string)get_field('cdapi_ip_address_apinoibo', 'option'),
+            'tradingserver' => (string)get_field('cdapi_ip_address_tradingserver', 'option'),
+            'full' => '',
+        ];
+
+        $method = in_array($bsc_external_form['method'], ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], true)
+            ? $bsc_external_form['method']
+            : 'GET';
+        $endpoint = $bsc_external_form['endpoint'];
+        $base_url = $base_urls[$bsc_external_form['base']] ?? '';
+
+        if ($endpoint === '') {
+            $bsc_external_result = [
+                'ok' => false,
+                'error' => 'Endpoint is required.',
+            ];
+        } else {
+            if (preg_match('#^https?://#i', $endpoint)) {
+                $url = $endpoint;
+            } else {
+                $url = rtrim($base_url, '/') . '/' . ltrim($endpoint, '/');
+            }
+
+            $headers = game_bsc_test_parse_headers($bsc_external_form['headers']);
+            $headers['Accept'] = $headers['Accept'] ?? 'application/json';
+
+            if ($bsc_external_form['use_access_token'] === '1' && !empty($_COOKIE['access_token'])) {
+                $headers['Authorization'] = 'Bearer ' . sanitize_text_field(wp_unslash($_COOKIE['access_token']));
+            }
+
+            $stk = $bsc_external_form['stk'];
+            $stk_param = $bsc_external_form['stk_param'] ?: 'custodycd';
+            $stk_location = $bsc_external_form['stk_location'];
+            $body_type = in_array($bsc_external_form['body_type'], ['json', 'form'], true)
+                ? $bsc_external_form['body_type']
+                : 'form';
+
+            if ($stk !== '' && in_array($stk_location, ['query', 'both'], true)) {
+                $url = add_query_arg($stk_param, $stk, $url);
+            }
+
+            $args = [
+                'method' => $method,
+                'timeout' => (int)$bsc_external_form['timeout'],
+                'headers' => $headers,
+            ];
+
+            if (!in_array($method, ['GET', 'HEAD'], true)) {
+                $raw_body = trim($bsc_external_form['body']);
+                $body_data = [];
+
+                if ($raw_body !== '') {
+                    $decoded_body = json_decode($raw_body, true);
+                    if (json_last_error() !== JSON_ERROR_NONE) {
+                        $bsc_external_result = [
+                            'ok' => false,
+                            'error' => 'Body must be valid JSON: ' . json_last_error_msg(),
+                        ];
+                    } elseif (is_array($decoded_body)) {
+                        $body_data = game_bsc_test_replace_placeholders($decoded_body, $stk);
+                    }
+                }
+
+                if ($bsc_external_result === null && $stk !== '' && in_array($stk_location, ['body', 'both'], true)) {
+                    $body_data[$stk_param] = $stk;
+                }
+
+                if ($bsc_external_result === null) {
+                    if ($body_type === 'json') {
+                        $args['headers']['Content-Type'] = $args['headers']['Content-Type'] ?? 'application/json';
+                        $args['body'] = wp_json_encode($body_data);
+                    } else {
+                        $args['body'] = $body_data;
+                    }
+                }
+            }
+
+            if ($bsc_external_result === null) {
+                $started_at = microtime(true);
+                $response = wp_remote_request($url, $args);
+                $elapsed_ms = (int)round((microtime(true) - $started_at) * 1000);
+
+                if (is_wp_error($response)) {
+                    $bsc_external_result = [
+                        'ok' => false,
+                        'url' => $url,
+                        'method' => $method,
+                        'elapsed_ms' => $elapsed_ms,
+                        'error' => $response->get_error_message(),
+                    ];
+                } else {
+                    $response_body = wp_remote_retrieve_body($response);
+                    $decoded_response = json_decode($response_body, true);
+                    $response_headers = wp_remote_retrieve_headers($response);
+                    $response_headers = is_object($response_headers) && method_exists($response_headers, 'getAll')
+                        ? $response_headers->getAll()
+                        : (array)$response_headers;
+                    $bsc_external_result = [
+                        'ok' => true,
+                        'url' => $url,
+                        'method' => $method,
+                        'status' => wp_remote_retrieve_response_code($response),
+                        'message' => wp_remote_retrieve_response_message($response),
+                        'elapsed_ms' => $elapsed_ms,
+                        'headers' => $response_headers,
+                        'body' => json_last_error() === JSON_ERROR_NONE ? $decoded_response : $response_body,
+                    ];
+                }
+            }
+        }
+    }
 }
 
 // ===== LẤY DỮ LIỆU =====
@@ -163,6 +361,48 @@ if ($selected_user_id > 0) {
         $selected_user_id
     ));
 }
+
+$api_routes = [];
+if (defined('NS') && function_exists('rest_get_server')) {
+    $rest_server = rest_get_server();
+    $registered_routes = $rest_server->get_routes();
+    $namespace_prefix = '/' . NS . '/';
+
+    foreach ($registered_routes as $route_path => $route_handlers) {
+        if (strpos($route_path, $namespace_prefix) !== 0) {
+            continue;
+        }
+
+        $methods = [];
+        foreach ((array)$route_handlers as $handler) {
+            if (empty($handler['methods']) || !is_array($handler['methods'])) {
+                continue;
+            }
+
+            foreach ($handler['methods'] as $method => $enabled) {
+                $method_name = is_string($method) ? $method : $enabled;
+                $method_name = strtoupper((string)$method_name);
+                if ($method_name && !in_array($method_name, $methods, true)) {
+                    $methods[] = $method_name;
+                }
+            }
+        }
+
+        sort($methods);
+        $api_routes[] = [
+            'route' => $route_path,
+            'methods' => $methods,
+            'has_path_params' => strpos($route_path, '(?P<') !== false,
+        ];
+    }
+
+    usort($api_routes, function ($a, $b) {
+        return strcmp($a['route'], $b['route']);
+    });
+}
+
+$customer_user_info_api = rtrim((string)get_field('cdapi_ip_address_apiurl', 'option'), '/') . '/user/info';
+$customer_internal_api = rtrim((string)get_field('cdapi_ip_address_apinoibo', 'option'), '/') . '/api/MarketData/GetCustomerByCustodycd';
 
 ?>
 <!DOCTYPE html>
@@ -225,6 +465,27 @@ if ($selected_user_id > 0) {
         .checkbox-group label:hover { border-color: #60a5fa; }
         a { color: #60a5fa; text-decoration: none; }
         a:hover { text-decoration: underline; }
+        textarea, input[type="text"] { background: #0f172a; color: #e2e8f0; border: 1px solid #475569; padding: 8px 10px; border-radius: 6px; width: 100%; }
+        textarea { min-height: 140px; resize: vertical; font-family: 'Fira Code', 'Consolas', monospace; font-size: 12px; line-height: 1.45; }
+        .tabs { display: flex; gap: 8px; margin: 16px 0; border-bottom: 1px solid #334155; }
+        .tab-btn { background: transparent; color: #94a3b8; border: 1px solid transparent; border-bottom: none; padding: 10px 14px; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: 700; }
+        .tab-btn.active { background: #1e293b; color: #e2e8f0; border-color: #334155; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+        .api-layout { display: grid; grid-template-columns: 360px 1fr; gap: 16px; align-items: start; }
+        .api-list { max-height: 620px; overflow: auto; }
+        .api-route-btn { width: 100%; text-align: left; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
+        .api-route-btn.active, .api-route-btn:hover { border-color: #60a5fa; background: #1e3a5f; }
+        .api-route-btn small { display: block; color: #94a3b8; margin-top: 4px; }
+        .api-tester form { display: block; }
+        .api-field { margin-bottom: 12px; }
+        .api-field label { display: block; margin-bottom: 6px; }
+        .api-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .api-status { color: #94a3b8; font-size: 12px; }
+        .api-result-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+        @media (max-width: 900px) {
+            .grid, .api-layout { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -235,6 +496,13 @@ if ($selected_user_id > 0) {
     <?php if ($message): ?>
         <div class="msg msg-<?php echo $message_type; ?>"><?php echo $message; ?></div>
     <?php endif; ?>
+
+    <div class="tabs" role="tablist">
+        <button type="button" class="tab-btn <?php echo $active_tab === 'tab-drops' ? 'active' : ''; ?>" data-tab-target="tab-drops">Test drop</button>
+        <button type="button" class="tab-btn <?php echo $active_tab === 'tab-api' ? 'active' : ''; ?>" data-tab-target="tab-api">Test API</button>
+    </div>
+
+    <div id="tab-drops" class="tab-panel <?php echo $active_tab === 'tab-drops' ? 'active' : ''; ?>">
 
     <!-- ===== CHỌN USER ===== -->
     <div class="card">
@@ -510,6 +778,408 @@ if ($selected_user_id > 0) {
             </div>
         </div>
     </div>
+    </div>
+
+    <div id="tab-api" class="tab-panel <?php echo $active_tab === 'tab-api' ? 'active' : ''; ?>">
+        <div class="card">
+            <h2>API lay thong tin khach hang</h2>
+            <table>
+                <tr>
+                    <td>REST trong game</td>
+                    <td class="mono">GET <?php echo esc_html(rest_url(NS . '/user')); ?></td>
+                </tr>
+                <tr>
+                    <td>Field ten khach hang</td>
+                    <td class="mono">data.user.name</td>
+                </tr>
+                <tr>
+                    <td>BSC user info</td>
+                    <td class="mono">GET <?php echo esc_html($customer_user_info_api); ?></td>
+                </tr>
+                <tr>
+                    <td>Field ten tu BSC</td>
+                    <td class="mono">d.userinfo.fullname</td>
+                </tr>
+                <tr>
+                    <td>Check custodycd noi bo</td>
+                    <td class="mono">POST <?php echo esc_html($customer_internal_api); ?></td>
+                </tr>
+            </table>
+            <p style="margin-top:8px;color:#64748b;font-size:12px;">
+                Code dang lay ten trong <code>save_game_user_to_db()</code> bang API <code>user/info</code>, sau do REST <code>/user</code> tra ve <code>user.name</code>.
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>Test BSC external API</h2>
+            <form method="post" class="api-tester">
+                <?php wp_nonce_field('game_test_drops'); ?>
+                <input type="hidden" name="action" value="bsc_external_api_call">
+
+                <div class="grid">
+                    <div class="api-field">
+                        <label for="bsc_base">Base URL</label>
+                        <select id="bsc_base" name="bsc_base" style="width:100%;">
+                            <option value="apinoibo" <?php selected($bsc_external_form['base'], 'apinoibo'); ?>>cdapi_ip_address_apinoibo</option>
+                            <option value="apiurl" <?php selected($bsc_external_form['base'], 'apiurl'); ?>>cdapi_ip_address_apiurl</option>
+                            <option value="tradingserver" <?php selected($bsc_external_form['base'], 'tradingserver'); ?>>cdapi_ip_address_tradingserver</option>
+                            <option value="full" <?php selected($bsc_external_form['base'], 'full'); ?>>Full URL trong endpoint</option>
+                        </select>
+                    </div>
+
+                    <div class="api-field">
+                        <label for="bsc_method">Method</label>
+                        <select id="bsc_method" name="bsc_method" style="width:100%;">
+                            <?php foreach (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as $method_option): ?>
+                                <option value="<?php echo esc_attr($method_option); ?>" <?php selected($bsc_external_form['method'], $method_option); ?>><?php echo esc_html($method_option); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="api-field">
+                    <label for="bsc_endpoint">Endpoint</label>
+                    <input type="text" id="bsc_endpoint" name="bsc_endpoint" value="<?php echo esc_attr($bsc_external_form['endpoint']); ?>" list="bsc_endpoint_presets" placeholder="/api/MarketData/GetCustomerByCustodycd hoac https://...">
+                    <datalist id="bsc_endpoint_presets">
+                        <option value="/api/MarketData/GetCustomerByCustodycd">Internal: GetCustomerByCustodycd</option>
+                        <option value="/user/info">SSO API: user/info</option>
+                        <option value="/trade/accounts">Trading API: trade/accounts</option>
+                        <option value="/report/registeredVoucherList">Trading API: registeredVoucherList</option>
+                    </datalist>
+                </div>
+
+                <div class="grid">
+                    <div class="api-field">
+                        <label for="bsc_stk">STK / custodycd / afacctno</label>
+                        <input type="text" id="bsc_stk" name="bsc_stk" value="<?php echo esc_attr($bsc_external_form['stk']); ?>" placeholder="002C...">
+                    </div>
+
+                    <div class="api-field">
+                        <label for="bsc_stk_param">Ten param STK</label>
+                        <input type="text" id="bsc_stk_param" name="bsc_stk_param" value="<?php echo esc_attr($bsc_external_form['stk_param']); ?>" placeholder="custodycd">
+                    </div>
+                </div>
+
+                <div class="grid">
+                    <div class="api-field">
+                        <label for="bsc_stk_location">Chen STK vao</label>
+                        <select id="bsc_stk_location" name="bsc_stk_location" style="width:100%;">
+                            <option value="body" <?php selected($bsc_external_form['stk_location'], 'body'); ?>>Body</option>
+                            <option value="query" <?php selected($bsc_external_form['stk_location'], 'query'); ?>>Query string</option>
+                            <option value="both" <?php selected($bsc_external_form['stk_location'], 'both'); ?>>Body + query</option>
+                            <option value="none" <?php selected($bsc_external_form['stk_location'], 'none'); ?>>Khong chen tu dong</option>
+                        </select>
+                    </div>
+
+                    <div class="api-field">
+                        <label for="bsc_body_type">Body type</label>
+                        <select id="bsc_body_type" name="bsc_body_type" style="width:100%;">
+                            <option value="form" <?php selected($bsc_external_form['body_type'], 'form'); ?>>Form body</option>
+                            <option value="json" <?php selected($bsc_external_form['body_type'], 'json'); ?>>JSON body</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="api-field">
+                    <label for="bsc_body">Body JSON, co the dung placeholder <code>{{stk}}</code></label>
+                    <textarea id="bsc_body" name="bsc_body" spellcheck="false"><?php echo esc_textarea($bsc_external_form['body']); ?></textarea>
+                </div>
+
+                <div class="api-field">
+                    <label for="bsc_headers">Headers tuy chon, nhap JSON hoac moi dong <code>Key: Value</code></label>
+                    <textarea id="bsc_headers" name="bsc_headers" spellcheck="false" placeholder="X-Custom: value"><?php echo esc_textarea($bsc_external_form['headers']); ?></textarea>
+                </div>
+
+                <div class="api-actions">
+                    <label style="display:flex;align-items:center;gap:6px;">
+                        <input type="checkbox" name="bsc_use_access_token" value="1" <?php checked($bsc_external_form['use_access_token'], '1'); ?>>
+                        Gan Authorization Bearer tu cookie access_token
+                    </label>
+                    <label>Timeout
+                        <input type="number" name="bsc_timeout" value="<?php echo esc_attr($bsc_external_form['timeout']); ?>" min="1" max="60" style="width:72px;">
+                    </label>
+                    <button type="submit" class="btn btn-success">Call BSC API</button>
+                </div>
+            </form>
+
+            <?php if ($bsc_external_result !== null): ?>
+                <h2>BSC response</h2>
+                <div class="api-result-meta">
+                    <?php if (!empty($bsc_external_result['status'])): ?>
+                        <span class="badge <?php echo ((int)$bsc_external_result['status'] >= 200 && (int)$bsc_external_result['status'] < 300) ? 'badge-green' : 'badge-red'; ?>">
+                            <?php echo esc_html($bsc_external_result['status'] . ' ' . ($bsc_external_result['message'] ?? '')); ?>
+                        </span>
+                    <?php elseif (empty($bsc_external_result['ok'])): ?>
+                        <span class="badge badge-red">ERROR</span>
+                    <?php endif; ?>
+                    <?php if (isset($bsc_external_result['elapsed_ms'])): ?>
+                        <span class="badge badge-blue"><?php echo esc_html($bsc_external_result['elapsed_ms']); ?>ms</span>
+                    <?php endif; ?>
+                    <?php if (!empty($bsc_external_result['method'])): ?>
+                        <span class="badge badge-purple"><?php echo esc_html($bsc_external_result['method']); ?></span>
+                    <?php endif; ?>
+                </div>
+                <?php if (!empty($bsc_external_result['url'])): ?>
+                    <p class="mono" style="margin-bottom:8px;color:#94a3b8;word-break:break-all;"><?php echo esc_html($bsc_external_result['url']); ?></p>
+                <?php endif; ?>
+                <pre><?php echo esc_html(wp_json_encode($bsc_external_result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?></pre>
+            <?php endif; ?>
+        </div>
+
+        <div class="api-layout api-tester">
+            <div class="card">
+                <h2>Danh sach API game-bsc</h2>
+                <div class="api-actions" style="margin-bottom:12px;">
+                    <button type="button" class="btn btn-primary btn-sm" id="api-run-all-get">Run all GET</button>
+                    <span class="api-status"><?php echo count($api_routes); ?> routes</span>
+                </div>
+                <p style="margin-bottom:12px;color:#64748b;font-size:12px;">
+                    Batch chi chay GET. Mot so GET co the cap nhat trang thai test, vi du <code>/user/unviewed-badges</code>.
+                </p>
+                <div class="api-list" id="api-route-list">
+                    <?php foreach ($api_routes as $index => $route): ?>
+                        <button type="button" class="api-route-btn<?php echo $index === 0 ? ' active' : ''; ?>" data-api-index="<?php echo (int)$index; ?>">
+                            <span class="mono"><?php echo esc_html($route['route']); ?></span>
+                            <small><?php echo esc_html(implode(', ', $route['methods'])); ?><?php echo $route['has_path_params'] ? ' | path params' : ''; ?></small>
+                        </button>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Request</h2>
+                <form id="api-test-form">
+                    <div class="api-field">
+                        <label for="api-method">Method</label>
+                        <select id="api-method"></select>
+                    </div>
+                    <div class="api-field">
+                        <label for="api-path">Path</label>
+                        <input type="text" id="api-path" value="">
+                    </div>
+                    <div class="api-field">
+                        <label for="api-query">Query string</label>
+                        <input type="text" id="api-query" placeholder="page=1&per_page=5">
+                    </div>
+                    <div class="api-field">
+                        <label for="api-body">JSON body</label>
+                        <textarea id="api-body" spellcheck="false"></textarea>
+                    </div>
+                    <div class="api-actions">
+                        <button type="submit" class="btn btn-success">Send request</button>
+                        <button type="button" class="btn btn-primary" id="api-fill-example">Fill example</button>
+                        <span class="api-status" id="api-status">Ready</span>
+                    </div>
+                </form>
+
+                <h2>Response</h2>
+                <div class="api-result-meta" id="api-result-meta"></div>
+                <pre id="api-result">{}</pre>
+            </div>
+        </div>
+    </div>
 </div>
+<script>
+(function () {
+    const routes = <?php echo wp_json_encode($api_routes); ?>;
+    const restRoot = <?php echo wp_json_encode(untrailingslashit(rest_url())); ?>;
+    const wpNonce = <?php echo wp_json_encode(wp_create_nonce('wp_rest')); ?>;
+    const gameNonce = <?php echo wp_json_encode(wp_create_nonce('wp_game_rest')); ?>;
+    const routeButtons = Array.from(document.querySelectorAll('.api-route-btn'));
+    const methodSelect = document.getElementById('api-method');
+    const pathInput = document.getElementById('api-path');
+    const queryInput = document.getElementById('api-query');
+    const bodyInput = document.getElementById('api-body');
+    const resultPre = document.getElementById('api-result');
+    const resultMeta = document.getElementById('api-result-meta');
+    const statusEl = document.getElementById('api-status');
+
+    const examples = {
+        'POST /game-bsc/session/start': { play_credit: 1 },
+        'POST /game-bsc/session/answer': { session_id: 1, question_id: 1, answer: 'A' },
+        'POST /game-bsc/session/next': { session_id: 1 },
+        'POST /game-bsc/missions/check': { mission_code: 'daily_login' },
+        'POST /game-bsc/missions/check-all': {},
+        'POST /game-bsc/vouchers/issue': { voucher_post_id: 1 },
+        'POST /game-bsc/gifts/redeem': { artifact_id: 1 }
+    };
+
+    function normalizePath(route) {
+        return route.replace(/\(\?P<([^>]+)>[^)]+\)/g, '1');
+    }
+
+    function setStatus(text) {
+        if (statusEl) statusEl.textContent = text;
+    }
+
+    function setActiveTab(targetId) {
+        document.querySelectorAll('.tab-btn').forEach(function (btn) {
+            btn.classList.toggle('active', btn.dataset.tabTarget === targetId);
+        });
+        document.querySelectorAll('.tab-panel').forEach(function (panel) {
+            panel.classList.toggle('active', panel.id === targetId);
+        });
+    }
+
+    function renderRoute(index) {
+        const route = routes[index];
+        if (!route) return;
+
+        routeButtons.forEach(function (btn) {
+            btn.classList.toggle('active', Number(btn.dataset.apiIndex) === index);
+        });
+
+        methodSelect.innerHTML = '';
+        (route.methods || ['GET']).forEach(function (method) {
+            const option = document.createElement('option');
+            option.value = method;
+            option.textContent = method;
+            methodSelect.appendChild(option);
+        });
+
+        pathInput.value = normalizePath(route.route);
+        queryInput.value = '';
+        fillExample();
+        resultMeta.innerHTML = '';
+        resultPre.textContent = '{}';
+        setStatus('Ready');
+    }
+
+    function currentExampleKey() {
+        return methodSelect.value + ' ' + pathInput.value.replace(/\/+$/, '');
+    }
+
+    function fillExample() {
+        const method = methodSelect.value;
+        const key = currentExampleKey();
+        const example = examples[key];
+        bodyInput.value = (method === 'GET' || method === 'HEAD')
+            ? ''
+            : JSON.stringify(example || {}, null, 2);
+    }
+
+    function buildUrl(path, query) {
+        const cleanPath = path.replace(/^\/+/, '');
+        let url = restRoot + '/' + cleanPath;
+        if (query.trim()) {
+            url += (url.indexOf('?') === -1 ? '?' : '&') + query.replace(/^\?+/, '');
+        }
+        return url;
+    }
+
+    async function sendRequest(method, path, query, rawBody) {
+        const startedAt = performance.now();
+        const headers = {
+            'Accept': 'application/json',
+            'X-WP-Nonce': wpNonce,
+            'X-Game-Nonce': gameNonce
+        };
+        const options = {
+            method: method,
+            headers: headers,
+            credentials: 'same-origin'
+        };
+
+        if (method !== 'GET' && method !== 'HEAD' && rawBody.trim()) {
+            headers['Content-Type'] = 'application/json';
+            options.body = JSON.stringify(JSON.parse(rawBody));
+        }
+
+        const response = await fetch(buildUrl(path, query), options);
+        const responseText = await response.text();
+        const elapsed = Math.round(performance.now() - startedAt);
+        let payload = responseText;
+
+        try {
+            payload = JSON.stringify(JSON.parse(responseText), null, 2);
+        } catch (error) {
+            payload = responseText || '(empty response)';
+        }
+
+        return {
+            status: response.status,
+            ok: response.ok,
+            statusText: response.statusText,
+            elapsed: elapsed,
+            body: payload
+        };
+    }
+
+    async function runCurrentRequest(event) {
+        if (event) event.preventDefault();
+        try {
+            setStatus('Sending...');
+            const result = await sendRequest(methodSelect.value, pathInput.value, queryInput.value, bodyInput.value);
+            resultMeta.innerHTML =
+                '<span class="badge ' + (result.ok ? 'badge-green' : 'badge-red') + '">' + result.status + ' ' + result.statusText + '</span>' +
+                '<span class="badge badge-blue">' + result.elapsed + 'ms</span>';
+            resultPre.textContent = result.body;
+            setStatus('Done');
+        } catch (error) {
+            resultMeta.innerHTML = '<span class="badge badge-red">Request error</span>';
+            resultPre.textContent = error && error.message ? error.message : String(error);
+            setStatus('Error');
+        }
+    }
+
+    async function runAllGet() {
+        if (!window.confirm('Run all GET routes? Mot so GET co the cap nhat trang thai test.')) {
+            return;
+        }
+
+        const getRoutes = routes.filter(function (route) {
+            return (route.methods || []).indexOf('GET') !== -1;
+        });
+        const rows = [];
+        setStatus('Running GET routes...');
+
+        for (const route of getRoutes) {
+            const path = normalizePath(route.route);
+            try {
+                const result = await sendRequest('GET', path, '', '');
+                rows.push({
+                    method: 'GET',
+                    path: path,
+                    status: result.status,
+                    ok: result.ok,
+                    elapsed: result.elapsed
+                });
+            } catch (error) {
+                rows.push({
+                    method: 'GET',
+                    path: path,
+                    status: 'ERROR',
+                    ok: false,
+                    elapsed: null,
+                    error: error && error.message ? error.message : String(error)
+                });
+            }
+        }
+
+        resultMeta.innerHTML = '<span class="badge badge-blue">' + rows.length + ' GET routes</span>';
+        resultPre.textContent = JSON.stringify(rows, null, 2);
+        setStatus('Done');
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            setActiveTab(btn.dataset.tabTarget);
+        });
+    });
+
+    routeButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            renderRoute(Number(btn.dataset.apiIndex));
+        });
+    });
+
+    methodSelect.addEventListener('change', fillExample);
+    document.getElementById('api-fill-example').addEventListener('click', fillExample);
+    document.getElementById('api-test-form').addEventListener('submit', runCurrentRequest);
+    document.getElementById('api-run-all-get').addEventListener('click', runAllGet);
+
+    renderRoute(0);
+})();
+</script>
 </body>
 </html>
