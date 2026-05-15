@@ -110,6 +110,7 @@ function game_bsc_install_tables() {
         period_end DATETIME NULL COMMENT 'Ngày kết thúc hiện vật',
         total_periods INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Số kỳ tung quà',
         max_redemptions_per_period INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Số bộ tối đa mỗi kỳ (0=vô hạn)',
+        drop_weight SMALLINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Trọng số random hiện vật (cao hơn = rơi nhiều hơn)',
         status TINYINT(1) NOT NULL DEFAULT 0, -- 1=Mở (hiển thị), 0=Đóng
         closed TINYINT(1) NOT NULL DEFAULT 0,     -- 1 = đã hết suất (không rơi mảnh), 0 = còn suất
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

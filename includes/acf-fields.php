@@ -143,6 +143,7 @@ function game_bsc_register_acf_fields() {
 					'BSC'          => 'Voucher tại BSC',
 					'THIRD_PARTY'  => 'Voucher bên thứ 3',
 				),
+				'default_value' => 'BSC',
 				'layout' => 'horizontal',
 				'return_format' => 'value',
 				'wrapper' => array('width' => 50),

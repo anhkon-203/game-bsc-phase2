@@ -493,6 +493,10 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
             $user_already_completed = game_user_has_completed_artifact( $user_id );
 
             // ===== Bước 3: Check Pity trước khi random =====
+            // Sắp xếp theo drop_weight giảm dần: hiện vật ưu tiên cao → pity check trước
+            usort($eligible_artifacts, function($a, $b) {
+                return ((int)($b->drop_weight ?? 1)) - ((int)($a->drop_weight ?? 1));
+            });
             $pity_piece = null;
             $pity_artifact = null;
             foreach ($eligible_artifacts as $art) {
@@ -548,8 +552,21 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
                     'period_index' => $pity_period_index
                 ];
             } else {
-                // ===== Bước 4: Random bình thường =====
-                $artifact = $eligible_artifacts[array_rand($eligible_artifacts)];
+                // ===== Bước 4: Random theo trọng số drop_weight =====
+                $art_weight_sum = 0;
+                foreach ($eligible_artifacts as $ea) {
+                    $art_weight_sum += max(1, (int)($ea->drop_weight ?? 1));
+                }
+                $art_rand = rand(1, $art_weight_sum);
+                $art_current = 0;
+                $artifact = $eligible_artifacts[0]; // fallback
+                foreach ($eligible_artifacts as $ea) {
+                    $art_current += max(1, (int)($ea->drop_weight ?? 1));
+                    if ($art_rand <= $art_current) {
+                        $artifact = $ea;
+                        break;
+                    }
+                }
                 $artifact_period_index = game_artifact_current_period( $artifact );
                 $artifact_period_has_quota = ( $artifact_period_index === false )
                     ? true
@@ -1690,6 +1707,28 @@ function game_api_session_result(WP_REST_Request $r)
         $uid
     ) );
 
+    // $resp = [
+    //     'session' => [
+    //         'id' => $sid,
+    //         'started_at' => $sess->started_at,
+    //         'finished_at' => $sess->finished_at,
+    //         'questions_total' => (int)$sess->questions_count,
+    //         'correct_count' => (int)$sess->correct_count,
+    //         'total_points' => $total_points,
+    //         'total_pieces' => $total_pieces,
+    //         'current_stage' => $current_stage['day_index'],
+    //         'status' => (int)$sess->current_stage_status,
+    //     ],
+    //     'artifact_won' => $artifact_won ? [
+    //         'artifact_id'   => (int) $artifact_won->artifact_id,
+    //         'artifact_name' => $artifact_won->artifact_name,
+    //         'artifacts_url' => $artifact_won->artifacts_url,
+    //         'redeemed_at'   => $artifact_won->redeemed_at,
+    //     ] : null,
+    // ];
+
+
+    // fake data để test phần frontend hiển thị kết quả trúng thưởng
     $resp = [
         'session' => [
             'id' => $sid,
@@ -1702,13 +1741,16 @@ function game_api_session_result(WP_REST_Request $r)
             'current_stage' => $current_stage['day_index'],
             'status' => (int)$sess->current_stage_status,
         ],
-        'artifact_won' => $artifact_won ? [
-            'artifact_id'   => (int) $artifact_won->artifact_id,
-            'artifact_name' => $artifact_won->artifact_name,
-            'artifacts_url' => $artifact_won->artifacts_url,
-            'redeemed_at'   => $artifact_won->redeemed_at,
-        ] : null,
+        'artifact_won' => [
+            'artifact_id'   => 123,
+            'artifact_name' => 'Hiện vật đặc biệt',
+            'artifacts_url' => 'http://bsc.wecan-group.info/wp-content/uploads/2025/12/Group-1171275169.png',
+            'redeemed_at'   => game_now(),
+        ],
     ];
+
+
+
 
     return wg_json_response(200, $resp, __('Lấy kết quả phiên chơi thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
 }

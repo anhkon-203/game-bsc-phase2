@@ -56,6 +56,7 @@ function game_bsc_manage_artifacts_page() {
                 <tr>
                     <th rowspan="2">Tên hiện vật</th>
                     <th rowspan="2">Số lượt đổi tối đa</th>
+                    <th rowspan="2">Trọng số rơi</th>
                     <th colspan="4" style="text-align:center;">Số lượng KH sở hữu mảnh ghép</th>
                     <th rowspan="2">Trạng thái</th>
                     <th rowspan="2">Mảnh ghép</th>
@@ -93,6 +94,7 @@ function game_bsc_manage_artifacts_page() {
                     <tr>
                         <td><?php echo esc_html($artifact->name); ?></td>
                         <td><?php echo esc_html($artifact->max_redemptions); ?></td>
+                        <td><?php echo esc_html($artifact->drop_weight ?? 1); ?></td>
                         <?php for ($i = 1; $i <= 4; $i++): ?>
                             <td style="text-align:center;">
                                 <a href="#" class="artifact-piece-detail-link"
@@ -326,6 +328,13 @@ function game_bsc_manage_artifacts_page() {
                     <td>
                         <input type="number" name="artifacts[${index}][max_redemptions]" min="1" value="1">
                         <p class="description">Tổng số quà hiện vật có thể trao trong toàn bộ chương trình. Số kỳ tung quà sẽ tự động bằng giá trị này.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Trọng số rơi mảnh</th>
+                    <td>
+                        <input type="number" name="artifacts[${index}][drop_weight]" min="1" max="100" value="1" style="width:80px;">
+                        <p class="description">Giá trị càng cao thì hiện vật này càng có nhiều khả năng được chọn khi random mảnh. Ví dụ: HV1=40, HV2=10 → HV1 có xác suất gấp 4 lần HV2.</p>
                     </td>
                 </tr>
                 <tr>
@@ -607,6 +616,7 @@ function game_bsc_handle_save_artifact() {
             $id              = isset($artifact['id']) ? (int)$artifact['id'] : 0;
             $name            = sanitize_text_field($artifact['name'] ?? '');
             $max_redemptions = (int)($artifact['max_redemptions'] ?? 0);
+            $drop_weight     = max(1, (int)($artifact['drop_weight'] ?? 1));
             $status          = (int)($artifact['status'] ?? 0);
             $status          = ($status === 1) ? 1 : 0;
 
@@ -713,7 +723,7 @@ function game_bsc_handle_save_artifact() {
             $old_pieces_data = [];
             if ($id > 0) {
                 $old_artifact_data = $wpdb->get_row(
-                        $wpdb->prepare("SELECT name, artifacts_url, max_redemptions, status FROM $artifacts_table WHERE id = %d", $id),
+                        $wpdb->prepare("SELECT name, artifacts_url, max_redemptions, drop_weight, status FROM $artifacts_table WHERE id = %d", $id),
                         ARRAY_A
                 );
                 $old_pieces_data = $wpdb->get_results(
@@ -735,6 +745,7 @@ function game_bsc_handle_save_artifact() {
                         [
                                 'name'                       => $name,
                                 'max_redemptions'            => $max_redemptions,
+                                'drop_weight'                => $drop_weight,
                                 'status'                     => $status,
                                 'artifacts_url'              => $artifacts_url,
                                 'period_start'               => $period_start,
@@ -743,7 +754,7 @@ function game_bsc_handle_save_artifact() {
                                 'max_redemptions_per_period' => $max_per_period,
                         ],
                         ['id' => $id],
-                        ['%s','%d','%d','%s','%s','%s','%d','%d'],
+                        ['%s','%d','%d','%d','%s','%s','%s','%d','%d'],
                         ['%d']
                 );
                 if ($ok === false) {
@@ -756,6 +767,7 @@ function game_bsc_handle_save_artifact() {
                         [
                                 'name'                       => $name,
                                 'max_redemptions'            => $max_redemptions,
+                                'drop_weight'                => $drop_weight,
                                 'status'                     => $status,
                                 'artifacts_url'              => $artifacts_url,
                                 'period_start'               => $period_start,
@@ -763,7 +775,7 @@ function game_bsc_handle_save_artifact() {
                                 'total_periods'              => $total_periods,
                                 'max_redemptions_per_period' => $max_per_period,
                         ],
-                        ['%s','%d','%d','%s','%s','%s','%d','%d']
+                        ['%s','%d','%d','%d','%s','%s','%s','%d','%d']
                 );
                 if ($ok === false) {
                     throw new Exception($wpdb->last_error ?: __('Không thể tạo hiện vật.', WG_GAME_PLUGIN_TEXTDOMAIN));
@@ -810,12 +822,14 @@ function game_bsc_handle_save_artifact() {
                 $old_artifact_info = [
                         'name' => $old_artifact_data['name'],
                         'max_redemptions' => (int)$old_artifact_data['max_redemptions'],
+                        'drop_weight' => (int)($old_artifact_data['drop_weight'] ?? 1),
                         'status' => (int)$old_artifact_data['status'],
                         'artifacts_url' => $old_artifact_data['artifacts_url'],
                 ];
                 $new_artifact_info = [
                         'name' => $name,
                         'max_redemptions' => $max_redemptions,
+                        'drop_weight' => $drop_weight,
                         'status' => $status,
                         'artifacts_url' => $artifacts_url,
                 ];
@@ -845,6 +859,7 @@ function game_bsc_handle_save_artifact() {
                                 'artifact' => [
                                         'name' => $name,
                                         'max_redemptions' => $max_redemptions,
+                                        'drop_weight' => $drop_weight,
                                         'status' => $status,
                                         'artifacts_url' => $artifacts_url,
                                 ],
@@ -1000,6 +1015,13 @@ function game_bsc_render_artifact_fieldset_prefilled($index, $artifact, $pieces)
                 <td>
                     <input type="number" name="artifacts[<?php echo (int)$index; ?>][max_redemptions]" min="1" value="<?php echo (int)$artifact->max_redemptions; ?>">
                     <p class="description">Số kỳ tung quà được hệ thống tự tính theo số lượt đổi tối đa, không cần nhập tay.</p>
+                </td>
+            </tr>
+            <tr>
+                <th>Trọng số rơi mảnh</th>
+                <td>
+                    <input type="number" name="artifacts[<?php echo (int)$index; ?>][drop_weight]" min="1" max="100" value="<?php echo (int)($artifact->drop_weight ?? 1); ?>" style="width:80px;">
+                    <p class="description">Giá trị càng cao thì hiện vật này càng có nhiều khả năng được chọn khi random mảnh. Ví dụ: HV1=40, HV2=10 → HV1 có xác suất gấp 4 lần HV2.</p>
                 </td>
             </tr>
             <tr>

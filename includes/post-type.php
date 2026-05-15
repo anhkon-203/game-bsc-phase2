@@ -350,6 +350,25 @@ function game_bsc_toggle_voucher_category_metabox_on_edit_screen() {
 add_action('admin_footer-post.php', 'game_bsc_toggle_voucher_category_metabox_on_edit_screen');
 add_action('admin_footer-post-new.php', 'game_bsc_toggle_voucher_category_metabox_on_edit_screen');
 
+/**
+ * Hide voucher type selector while keeping the field in the form so edits preserve its value.
+ */
+function game_bsc_hide_voucher_type_field_on_edit_screen() {
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if (!$screen || $screen->base !== 'post' || $screen->post_type !== 'game_vouchers') {
+        return;
+    }
+    ?>
+    <style>
+        .acf-field[data-key="field_voucher_type"] {
+            display: none !important;
+        }
+    </style>
+    <?php
+}
+add_action('admin_head-post.php', 'game_bsc_hide_voucher_type_field_on_edit_screen');
+add_action('admin_head-post-new.php', 'game_bsc_hide_voucher_type_field_on_edit_screen');
+
 
 
 // new phan quyen
