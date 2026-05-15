@@ -796,7 +796,6 @@ function game_bsc_register_acf_fields() {
 		return $valid;
 	}, 10, 4);
 
-	
-	
+
 }
 add_action('acf/init', 'game_bsc_register_acf_fields'); // register ACF fields (if ACF exists)

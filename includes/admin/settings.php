@@ -36,6 +36,9 @@ function game_bsc_settings_page() {
             <a href="#tab-api-url" class="nav-tab" data-tab="api-url">
                 <?php _e('Url API', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
             </a>
+            <a href="#tab-voucher" class="nav-tab" data-tab="voucher">
+                <?php _e('Cài đặt Voucher', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
+            </a>
         </div>
 
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="wg-game-settings-form">
@@ -498,6 +501,29 @@ function game_bsc_settings_page() {
                     </tr>
                 </table>
             </div>
+
+            <!-- ========== TAB: VOUCHER SETTINGS ========== -->
+            <div id="tab-voucher" class="wg-game-tab-content" style="display:none;">
+                <h2><?php _e('Cài đặt Voucher', WG_GAME_PLUGIN_TEXTDOMAIN); ?></h2>
+                <table class="form-table">
+                    <tr>
+                        <th><label><?php _e('Ảnh banner mặc định khi đã đổi voucher', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
+                        <td>
+                            <?php 
+                            $default_banner_id = get_option('game_bsc_default_redeemed_banner', ''); 
+                            $default_banner_url = $default_banner_id ? wp_get_attachment_image_url($default_banner_id, 'medium') : '';
+                            ?>
+                            <div class="image-preview-wrapper" style="margin-bottom: 10px;">
+                                <img id="default_redeemed_banner_preview" src="<?php echo esc_url($default_banner_url); ?>" style="max-width:300px; max-height:300px; display:<?php echo $default_banner_url ? 'block' : 'none'; ?>;" />
+                            </div>
+                            <input type="hidden" name="game_bsc_default_redeemed_banner" id="default_redeemed_banner_id" value="<?php echo esc_attr($default_banner_id); ?>">
+                            <button type="button" class="button" id="upload_default_redeemed_banner_button"><?php _e('Chọn ảnh', WG_GAME_PLUGIN_TEXTDOMAIN); ?></button>
+                            <button type="button" class="button" id="remove_default_redeemed_banner_button" style="display:<?php echo $default_banner_url ? 'inline-block' : 'none'; ?>;"><?php _e('Xóa ảnh', WG_GAME_PLUGIN_TEXTDOMAIN); ?></button>
+                            <p class="description">Ảnh này sẽ được dùng tự động làm ảnh banner đã đổi nếu voucher cụ thể không thiết lập ảnh banner riêng.</p>
+                        </td>
+                    </tr>
+                </table>
+            </div>
             <!-- SUBMIT BUTTON -->
             <p style="margin-top:30px; padding-top:20px; border-top:1px solid #ccc;">
                 <input type="submit" name="save_settings" class="button-primary" value="<?php _e('Lưu cài đặt', WG_GAME_PLUGIN_TEXTDOMAIN); ?>">
@@ -596,36 +622,64 @@ function game_bsc_settings_page() {
     </style>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // ========== TAB SWITCHING ==========
-            const tabLinks = document.querySelectorAll('.wg-game-tabs .nav-tab');
-            const tabContents = document.querySelectorAll('.wg-game-tab-content');
+        // ========== MEDIA UPLOADER FOR VOUCHER BANNER (jQuery) ==========
+        jQuery(document).ready(function($) {
+            var banner_frame;
+            $('#upload_default_redeemed_banner_button').on('click', function(e) {
+                e.preventDefault();
+                if (banner_frame) {
+                    banner_frame.open();
+                    return;
+                }
+                banner_frame = wp.media({
+                    title: 'Chon anh banner mac dinh',
+                    button: { text: 'Su dung anh nay' },
+                    multiple: false
+                });
+                banner_frame.on('select', function() {
+                    var attachment = banner_frame.state().get('selection').first().toJSON();
+                    $('#default_redeemed_banner_id').val(attachment.id);
+                    $('#default_redeemed_banner_preview').attr('src', attachment.url).show();
+                    $('#remove_default_redeemed_banner_button').show();
+                });
+                banner_frame.open();
+            });
 
-            tabLinks.forEach(link => {
+            $('#remove_default_redeemed_banner_button').on('click', function(e) {
+                e.preventDefault();
+                $('#default_redeemed_banner_id').val('');
+                $('#default_redeemed_banner_preview').attr('src', '').hide();
+                $(this).hide();
+            });
+        });
+
+        // ========== TAB SWITCHING (Vanilla JS) ==========
+        document.addEventListener('DOMContentLoaded', function() {
+            var tabLinks = document.querySelectorAll('.wg-game-tabs .nav-tab');
+            var tabContents = document.querySelectorAll('.wg-game-tab-content');
+
+            tabLinks.forEach(function(link) {
                 link.addEventListener('click', function(e) {
                     e.preventDefault();
-                    const tabName = this.getAttribute('data-tab');
-                    const tabId = 'tab-' + tabName;
+                    var tabName = this.getAttribute('data-tab');
+                    var tabId = 'tab-' + tabName;
 
-                    // Remove active class từ tất cả tab
-                    tabLinks.forEach(t => t.classList.remove('nav-tab-active'));
-                    tabContents.forEach(tc => tc.style.display = 'none');
+                    tabLinks.forEach(function(t) { t.classList.remove('nav-tab-active'); });
+                    tabContents.forEach(function(tc) { tc.style.display = 'none'; });
 
-                    // Add active class vào tab được click
                     this.classList.add('nav-tab-active');
-                    const activeTab = document.getElementById(tabId);
+                    var activeTab = document.getElementById(tabId);
                     if (activeTab) {
                         activeTab.style.display = 'block';
                     }
 
-                    // Lưu tab đang active vào localStorage
                     localStorage.setItem('game_bsc_active_tab', tabName);
                 });
             });
 
-            // Restore tab từ localStorage
-            const savedTab = localStorage.getItem('game_bsc_active_tab') || 'general';
-            const savedTabLink = document.querySelector(`.wg-game-tabs .nav-tab[data-tab="${savedTab}"]`);
+            // Restore tab tu localStorage
+            var savedTab = localStorage.getItem('game_bsc_active_tab') || 'general';
+            var savedTabLink = document.querySelector('.wg-game-tabs .nav-tab[data-tab="' + savedTab + '"]');
             if (savedTabLink) {
                 savedTabLink.click();
             }
@@ -1207,6 +1261,20 @@ function game_bsc_handle_save_settings() {
             'game_bsc_trading_server',
             $old_trading_server,
             $trading_server,
+            'update'
+        );
+    }
+
+    // Default Redeemed Banner
+    $old_default_redeemed_banner = get_option('game_bsc_default_redeemed_banner', '');
+    $default_redeemed_banner = intval($_POST['game_bsc_default_redeemed_banner'] ?? 0);
+    update_option('game_bsc_default_redeemed_banner', $default_redeemed_banner);
+
+    if ($old_default_redeemed_banner != $default_redeemed_banner) {
+        game_bsc_log_settings_change(
+            'game_bsc_default_redeemed_banner',
+            $old_default_redeemed_banner,
+            $default_redeemed_banner,
             'update'
         );
     }

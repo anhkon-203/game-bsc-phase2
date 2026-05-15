@@ -284,24 +284,22 @@ function game_get_user_info(WP_REST_Request $request)
 		$min_stage = min($all_stages);
 		$max_stage = max($all_stages);
 		
-		// Range: bắt đầu từ chặng nhỏ nhất (ví dụ chặng 1) tới chặng current_stage + 5,
-		// nhưng vẫn giới hạn trong [min_stage, max_stage]
-		// Lưu ý: không lấy 5 chặng trước chặng hiện tại nữa, thay vào đó lấy tất cả chặng bắt đầu từ $min_stage
+		// Tổng số chặng tối đa user có thể đi tới = chặng hiện tại + số lượt chơi đang có
+		$total_possible_stages = $current_stage + $balance;
+		
 		$start_stage = $min_stage;
-		$end_stage = $current_stage + 5;
+		// Nhưng sẽ bị chặn lại nếu user không còn đủ lượt (end_stage không vượt quá total_possible_stages)
+		$end_stage = min($current_stage + 5, $total_possible_stages);
 		
 		$weekday_range = [];
 		
 		for ($stage_num = $start_stage; $stage_num <= $end_stage; $stage_num++) {
-			// if (!isset($stage_map[$stage_num])) {
-			// 	continue;
-			// }
-			
-			$stage_info = $stage_map[$stage_num];
+			// Cần fallback an toàn để tránh lỗi PHP khi user chơi tới chặng mà Admin chưa cấu hình
+			$stage_info = isset($stage_map[$stage_num]) ? $stage_map[$stage_num] : [];
 			$is_active = ($stage_num === $current_stage);
 			
-			$score_per_question = (int)$stage_info['score'];
-			$questions_per_day = (int)$stage_info['questions_per_day'];
+			$score_per_question = !empty($stage_info['score']) ? (int)$stage_info['score'] : 0;
+			$questions_per_day = !empty($stage_info['questions_per_day']) ? (int)$stage_info['questions_per_day'] : 0;
 			
 			$day_data = [
 				'day_index' => $stage_num,
@@ -380,7 +378,7 @@ function game_get_user_info(WP_REST_Request $request)
 			'pieces' => (int)$pieces_balance,
 		),
 		'play_credit_balance' => (int)$balance,
-		'game_day' => $game_day,
+		'game_day' => array_merge($game_day, ['total_stages' => $total_possible_stages]),
 		'weekday_range' => $weekday_range
 	);
 	return wg_json_response(200, $response, __('Lấy thông tin người dùng thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));

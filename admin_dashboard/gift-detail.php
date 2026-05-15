@@ -94,6 +94,12 @@ if ($gift_type === 'voucher') {
 		
 		$redeemed_banner_image_id = get_field('redeemed_banner_image', $voucher_id);
 		$redeemed_banner_image_url = $redeemed_banner_image_id ? wp_get_attachment_url($redeemed_banner_image_id) : '';
+		if (!$redeemed_banner_image_url) {
+			$default_banner_id = get_option('game_bsc_default_redeemed_banner');
+			if ($default_banner_id) {
+				$redeemed_banner_image_url = wp_get_attachment_image_url($default_banner_id, 'full') ?: '';
+			}
+		}
 		
 		$gift_data = [
 			'type' => 'voucher',

@@ -1110,14 +1110,26 @@ function game_bsc_compute_day_index_v2($user_id) {
 			$status = 'ongoing';
 		}
 		
+		// Tính toán chặng hiện tại thực tế (nếu đã xong chặng trước thì lên chặng mới)
+		$stage_num = intval($current_stage['current_stage']);
+		$stage_status = intval($current_stage['current_stage_status']);
+		
+		if ($stage_num === 0) {
+			$day_index = 1; // User mới
+		} elseif ($stage_status === 1) {
+			$day_index = $stage_num + 1; // Đã qua chặng trước -> Lên chặng tiếp theo
+		} else {
+			$day_index = $stage_num; // Đang chơi dở -> Giữ nguyên chặng
+		}
+		
 		return [
-			'day_index' => intval($current_stage['current_stage']),
+			'day_index' => $day_index,
 			'status' => $status,
 			'total_days' => $total_days,
 			'start_date' => $start->format('Y-m-d'),
 			'end_date' => $end->format('Y-m-d'),
 			'today' => $today->format('Y-m-d'),
-      'current_stage_status' => intval($current_stage['current_stage_status']),
+			'current_stage_status' => $stage_status,
 		];
 		
 	} catch (Throwable $e) {
