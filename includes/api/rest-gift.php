@@ -1733,57 +1733,104 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 		$applicable_stores = [];
 
 		if ($voucher_post && $voucher_post->post_type === 'game_vouchers') {
-			$voucher_terms = (string) (get_field('voucher_terms', $voucher_post_id) ?? '');
-			$voucher_service_guide = (string) (get_field('voucher_service_guide', $voucher_post_id) ?? '');
-			$applicable_stores = game_bsc_get_voucher_applicable_stores($voucher_post_id);
+			// Tối ưu: Lấy tất cả post meta trong 1 query thay vì nhiều get_field()
+			$post_meta = get_post_custom($voucher_post_id);
+			$get_meta_value = function($key) use ($post_meta) {
+				return isset($post_meta[$key][0]) ? (string) $post_meta[$key][0] : '';
+			};
 
-			$partner_data = get_field('partner', $voucher_post_id);
-			if (!is_array($partner_data)) {
-				$partner_data = [];
-			}
+			$voucher_terms = $get_meta_value('voucher_terms');
+			$voucher_service_guide = $get_meta_value('voucher_service_guide');
+			$voucher_brand_name = $get_meta_value('voucher_brand_name');
+			$voucher_brand_url = $get_meta_value('voucher_link_url');
+			$voucher_brand_logo_url_field = $get_meta_value('voucher_brand_logo_url');
+			$voucher_image_url = $get_meta_value('voucher_image_url');
 
-			$voucher_brand_name = sanitize_text_field((string) ($partner_data['name'] ?? get_field('voucher_brand_name', $voucher_post_id) ?? ''));
-			$voucher_brand_url = esc_url_raw((string) ($partner_data['url'] ?? get_field('voucher_link_url', $voucher_post_id) ?? ''));
-
-			// Ưu tiên lấy logo từ settings trước
-			$voucher_brand_logo_url = game_bsc_get_default_brand_logo_url();
-
-			// Nếu settings không có, lấy từ voucher cụ thể
-			if ($voucher_brand_logo_url === '') {
-				$voucher_brand_logo_url = game_bsc_resolve_partner_logo_url($partner_data['logo'] ?? '');
-				if ($voucher_brand_logo_url === '') {
-					$voucher_brand_logo_url = esc_url_raw((string) (get_field('voucher_brand_logo_url', $voucher_post_id) ?? ''));
+			// Lấy partner data từ cached meta
+			$partner_json = $get_meta_value('partner');
+			$partner_data = [];
+			if (!empty($partner_json)) {
+				$decoded_partner = json_decode($partner_json, true);
+				if (is_array($decoded_partner)) {
+					$partner_data = $decoded_partner;
 				}
 			}
 
-			$voucher_image_url = esc_url_raw((string) (get_field('voucher_image_url', $voucher_post_id) ?? ''));
+			// Lấy applicable_stores từ cached meta
+			$stores_json = $get_meta_value('_game_bsc_gotit_applicable_stores_json');
+			if (!empty($stores_json)) {
+				$stores_list = json_decode($stores_json, true);
+				if (is_array($stores_list)) {
+					foreach ($stores_list as $store_item) {
+						if (is_array($store_item) && isset($store_item['raw']) && is_array($store_item['raw'])) {
+							$applicable_stores[] = $store_item['raw'];
+						}
+					}
+				}
+			}
+
+			// Brand info - ưu tiên settings trước
+			$voucher_brand_logo_url = game_bsc_get_default_brand_logo_url();
+
+			if ($voucher_brand_logo_url === '') {
+				$partner_logo = $partner_data['logo'] ?? '';
+				$voucher_brand_logo_url = game_bsc_resolve_partner_logo_url($partner_logo);
+				if ($voucher_brand_logo_url === '') {
+					$voucher_brand_logo_url = $voucher_brand_logo_url_field;
+				}
+			}
+
+			$voucher_brand_name = $partner_data['name'] ?: $voucher_brand_name;
+			$voucher_brand_url = $partner_data['url'] ?: $voucher_brand_url;
 		}
 
 		if ($voucher_image_url === '') {
 			$voucher_image_url = esc_url_raw((string) ($transaction['gotit_voucher_image'] ?? ''));
 		}
 
+		// expiry_date - ưu tiên từ transaction, chỉ query DB khi thực sự cần
 		$expiry_date = sanitize_text_field((string) ($transaction['gotit_expiry_date'] ?? ''));
+
 		$redemption_id = (int) ($transaction['redemption_id'] ?? 0);
 		if ($expiry_date === '' && $redemption_id > 0) {
-			$redemption_expiry = $wpdb->get_var(
-				$wpdb->prepare(
-					"SELECT gotit_expiry_date FROM {$prefix}user_voucher_redemptions WHERE id = %d",
-					$redemption_id
-				)
-			);
+			// Thử lấy từ object cache trước
+			$cached_expiry = wp_cache_get('redemption_expiry_' . $redemption_id, 'game_bsc');
+			if ($cached_expiry !== false) {
+				$expiry_date = $cached_expiry;
+			} else {
+				// Chỉ query DB khi không có cache
+				$redemption_expiry = $wpdb->get_var(
+					$wpdb->prepare(
+						"SELECT gotit_expiry_date FROM {$prefix}user_voucher_redemptions WHERE id = %d",
+						$redemption_id
+					)
+				);
 
-			if (is_string($redemption_expiry) && $redemption_expiry !== '') {
-				$expiry_date = sanitize_text_field($redemption_expiry);
+				if (is_string($redemption_expiry) && $redemption_expiry !== '') {
+					$expiry_date = sanitize_text_field($redemption_expiry);
+					// Cache kết quả trong 1 ngày để tái sử dụng
+					wp_cache_set('redemption_expiry_' . $redemption_id, $expiry_date, 'game_bsc', DAY_IN_SECONDS);
+				}
 			}
 		}
 
 		$is_used = ((int) ($transaction['gotit_status'] ?? 0) === 4);
 		$state_code = (int) ($transaction['gotit_status'] ?? 0);
 
+		// Gọi Got It API với cache 5 phút
 		$client = game_bsc_gotit_client();
 		if ($client && $client->is_configured()) {
-			$ref_result = $client->get_vouchers_by_ref_id($transaction_ref_id, 1, 100, ['productInfo', 'usedInfo', 'groupInfo', 'stateInfo']);
+			$gotit_cache_key = 'gotit_ref_' . md5($transaction_ref_id);
+			$cached_gotit = wp_cache_get($gotit_cache_key, 'game_bsc_gotit');
+
+			if ($cached_gotit !== false) {
+				$ref_result = $cached_gotit;
+			} else {
+				$ref_result = $client->get_vouchers_by_ref_id($transaction_ref_id, 1, 100, ['productInfo', 'usedInfo', 'groupInfo', 'stateInfo']);
+				if (is_array($ref_result)) {
+					wp_cache_set($gotit_cache_key, $ref_result, 'game_bsc_gotit', 5 * MINUTE_IN_SECONDS);
+				}
+			}
 
 			if (!empty($ref_result['success']) && is_array($ref_result['data'] ?? null)) {
 				$ref_payload = $ref_result['data'];
@@ -1822,18 +1869,26 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 			$is_used = true;
 		}
 
+		// Lấy title từ transaction nếu không có post
+		$voucher_title = '';
+		if ($voucher_post && isset($voucher_post->post_title)) {
+			$voucher_title = sanitize_text_field($voucher_post->post_title);
+		} else {
+			$voucher_title = sanitize_text_field((string) ($transaction['gotit_order_name'] ?? ''));
+		}
+
 		$response = [
 			'transaction_ref_id' => $transaction_ref_id,
 			'voucher_info' => [
 				'voucher_id' => $voucher_post_id,
-				'title' => sanitize_text_field((string) (($voucher_post && isset($voucher_post->post_title)) ? $voucher_post->post_title : ($transaction['gotit_order_name'] ?? ''))),
+				'title' => $voucher_title,
 				'voucher_code' => sanitize_text_field((string) ($transaction['gotit_voucher_code'] ?? '')),
 				'voucher_link' => esc_url((string) ($transaction['gotit_voucher_link'] ?? '')),
 				'voucher_image' => esc_url($voucher_image_url),
 				'serial' => sanitize_text_field((string) ($transaction['gotit_serial'] ?? '')),
 				'barcode' => game_bsc_generate_code128_barcode_data_uri((string) ($transaction['gotit_voucher_code'] ?? '')),
 				'brand_info' => [
-					'name' => $voucher_brand_name,
+					'name' => sanitize_text_field($voucher_brand_name),
 					'url' => esc_url($voucher_brand_url),
 					'logo_url' => esc_url($voucher_brand_logo_url),
 				],
