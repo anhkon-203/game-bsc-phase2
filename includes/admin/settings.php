@@ -522,6 +522,22 @@ function game_bsc_settings_page() {
                             <p class="description">Ảnh này sẽ được dùng tự động làm ảnh banner đã đổi nếu voucher cụ thể không thiết lập ảnh banner riêng.</p>
                         </td>
                     </tr>
+                    <tr>
+                        <th><label><?php _e('Logo brand mặc định', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
+                        <td>
+                            <?php 
+                            $default_brand_logo_id = get_option('game_bsc_default_brand_logo', ''); 
+                            $default_brand_logo_url = $default_brand_logo_id ? wp_get_attachment_image_url($default_brand_logo_id, 'medium') : '';
+                            ?>
+                            <div class="image-preview-wrapper" style="margin-bottom: 10px;">
+                                <img id="default_brand_logo_preview" src="<?php echo esc_url($default_brand_logo_url); ?>" style="max-width:150px; max-height:150px; display:<?php echo $default_brand_logo_url ? 'block' : 'none'; ?>;" />
+                            </div>
+                            <input type="hidden" name="game_bsc_default_brand_logo" id="default_brand_logo_id" value="<?php echo esc_attr($default_brand_logo_id); ?>">
+                            <button type="button" class="button" id="upload_default_brand_logo_button"><?php _e('Chọn ảnh', WG_GAME_PLUGIN_TEXTDOMAIN); ?></button>
+                            <button type="button" class="button" id="remove_default_brand_logo_button" style="display:<?php echo $default_brand_logo_url ? 'inline-block' : 'none'; ?>;"><?php _e('Xóa ảnh', WG_GAME_PLUGIN_TEXTDOMAIN); ?></button>
+                            <p class="description">Logo brand mặc định cho voucher (Got It). Nếu không thiết lập, hệ thống sẽ lấy logo từ thông tin voucher cụ thể hoặc từ Got It API.</p>
+                        </td>
+                    </tr>
                 </table>
             </div>
             <!-- SUBMIT BUTTON -->
@@ -649,6 +665,35 @@ function game_bsc_settings_page() {
                 e.preventDefault();
                 $('#default_redeemed_banner_id').val('');
                 $('#default_redeemed_banner_preview').attr('src', '').hide();
+                $(this).hide();
+            });
+
+            // ========== MEDIA UPLOADER FOR BRAND LOGO ==========
+            var brand_logo_frame;
+            $('#upload_default_brand_logo_button').on('click', function(e) {
+                e.preventDefault();
+                if (brand_logo_frame) {
+                    brand_logo_frame.open();
+                    return;
+                }
+                brand_logo_frame = wp.media({
+                    title: 'Chon anh logo brand',
+                    button: { text: 'Su dung anh nay' },
+                    multiple: false
+                });
+                brand_logo_frame.on('select', function() {
+                    var attachment = brand_logo_frame.state().get('selection').first().toJSON();
+                    $('#default_brand_logo_id').val(attachment.id);
+                    $('#default_brand_logo_preview').attr('src', attachment.url).show();
+                    $('#remove_default_brand_logo_button').show();
+                });
+                brand_logo_frame.open();
+            });
+
+            $('#remove_default_brand_logo_button').on('click', function(e) {
+                e.preventDefault();
+                $('#default_brand_logo_id').val('');
+                $('#default_brand_logo_preview').attr('src', '').hide();
                 $(this).hide();
             });
         });
@@ -1275,6 +1320,20 @@ function game_bsc_handle_save_settings() {
             'game_bsc_default_redeemed_banner',
             $old_default_redeemed_banner,
             $default_redeemed_banner,
+            'update'
+        );
+    }
+
+    // Default Brand Logo
+    $old_default_brand_logo = get_option('game_bsc_default_brand_logo', '');
+    $default_brand_logo = intval($_POST['game_bsc_default_brand_logo'] ?? 0);
+    update_option('game_bsc_default_brand_logo', $default_brand_logo);
+
+    if ($old_default_brand_logo != $default_brand_logo) {
+        game_bsc_log_settings_change(
+            'game_bsc_default_brand_logo',
+            $old_default_brand_logo,
+            $default_brand_logo,
             'update'
         );
     }

@@ -265,6 +265,20 @@ function game_bsc_resolve_partner_logo_url($logo_value) {
 }
 
 /**
+ * Lấy logo brand mặc định từ settings.
+ * Nếu không có trong settings, trả về chuỗi rỗng.
+ *
+ * @return string URL của logo brand mặc định
+ */
+function game_bsc_get_default_brand_logo_url() {
+	$default_logo_id = get_option('game_bsc_default_brand_logo', 0);
+	if ($default_logo_id > 0) {
+		return (string) (wp_get_attachment_image_url($default_logo_id, 'full') ?: '');
+	}
+	return '';
+}
+
+/**
  * Lấy danh sách voucher đã đăng ký từ BSC Trading API và sync vào field voucher nội bộ.
  * Map: voucherid (API) <=> voucher_code (admin game BSC).
 	 * Chỉ update field khi dữ liệu thay đổi: prinpaid.
@@ -935,9 +949,15 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 				$thumbnail_url = wp_get_attachment_image_url($thumbnail_id, 'full') ?: '';
 			}
 
-			$partner_logo_url = game_bsc_resolve_partner_logo_url($partner['logo'] ?? '');
+			// Ưu tiên lấy logo từ settings trước
+			$partner_logo_url = game_bsc_get_default_brand_logo_url();
+
+			// Nếu settings không có, lấy từ voucher cụ thể
 			if ($partner_logo_url === '') {
-				$partner_logo_url = esc_url_raw((string) get_field('voucher_brand_logo_url', $post_id));
+				$partner_logo_url = game_bsc_resolve_partner_logo_url($partner['logo'] ?? '');
+				if ($partner_logo_url === '') {
+					$partner_logo_url = esc_url_raw((string) get_field('voucher_brand_logo_url', $post_id));
+				}
 			}
 
 			$voucher_item = [
@@ -1247,9 +1267,16 @@ function game_bsc_get_voucher_detail(WP_REST_Request $request) {
 
 		$unit_name = sanitize_text_field((string) ($partner_data['name'] ?? get_field('voucher_brand_name', $voucher_id) ?? ''));
 		$unit_url = esc_url_raw((string) ($partner_data['url'] ?? get_field('voucher_link_url', $voucher_id) ?? ''));
-		$unit_logo_url = game_bsc_resolve_partner_logo_url($partner_data['logo'] ?? '');
+
+		// Ưu tiên lấy logo từ settings trước
+		$unit_logo_url = game_bsc_get_default_brand_logo_url();
+
+		// Nếu settings không có, lấy từ voucher cụ thể
 		if ($unit_logo_url === '') {
-			$unit_logo_url = esc_url_raw((string) (get_field('voucher_brand_logo_url', $voucher_id) ?? ''));
+			$unit_logo_url = game_bsc_resolve_partner_logo_url($partner_data['logo'] ?? '');
+			if ($unit_logo_url === '') {
+				$unit_logo_url = esc_url_raw((string) (get_field('voucher_brand_logo_url', $voucher_id) ?? ''));
+			}
 		}
 
 		$denominations = [];
@@ -1717,9 +1744,16 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 
 			$voucher_brand_name = sanitize_text_field((string) ($partner_data['name'] ?? get_field('voucher_brand_name', $voucher_post_id) ?? ''));
 			$voucher_brand_url = esc_url_raw((string) ($partner_data['url'] ?? get_field('voucher_link_url', $voucher_post_id) ?? ''));
-			$voucher_brand_logo_url = game_bsc_resolve_partner_logo_url($partner_data['logo'] ?? '');
+
+			// Ưu tiên lấy logo từ settings trước
+			$voucher_brand_logo_url = game_bsc_get_default_brand_logo_url();
+
+			// Nếu settings không có, lấy từ voucher cụ thể
 			if ($voucher_brand_logo_url === '') {
-				$voucher_brand_logo_url = esc_url_raw((string) (get_field('voucher_brand_logo_url', $voucher_post_id) ?? ''));
+				$voucher_brand_logo_url = game_bsc_resolve_partner_logo_url($partner_data['logo'] ?? '');
+				if ($voucher_brand_logo_url === '') {
+					$voucher_brand_logo_url = esc_url_raw((string) (get_field('voucher_brand_logo_url', $voucher_post_id) ?? ''));
+				}
 			}
 
 			$voucher_image_url = esc_url_raw((string) (get_field('voucher_image_url', $voucher_post_id) ?? ''));

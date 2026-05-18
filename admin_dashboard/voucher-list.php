@@ -383,10 +383,13 @@ function exportVoucherListToCSV() {
 		const voucherValue = row.gift_type === 'voucher' ? row.voucher_value : '';
 		const pointsCost = row.gift_type === 'voucher' ? row.points_cost : '';
 
+		// Format AFACCTNO to preserve leading zeros in Excel (use ="value" format)
+		const formattedAfacctno = row.afacctno ? `="${row.afacctno}"` : '';
+
 		const rowData = [
 			// row.stt,                    // STT
 			row.external_user_id,       // CUSTODYCD
-			row.afacctno || '',         // AFACCTNO
+			formattedAfacctno,          // AFACCTNO (preserve leading zeros)
 			voucherCode,                // Mã voucher / Tên hiện vật
 			row.redeemed_at_display,    // Thời gian đổi
 			voucherValue,               // GIÁ_TRỊ_VOUCHER
