@@ -39,6 +39,9 @@ function game_bsc_settings_page() {
             <a href="#tab-voucher" class="nav-tab" data-tab="voucher">
                 <?php _e('Cài đặt Voucher', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
             </a>
+            <a href="#tab-banners" class="nav-tab" data-tab="banners">
+                <?php _e('Quản lí banner', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
+            </a>
         </div>
 
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="wg-game-settings-form">
@@ -540,6 +543,29 @@ function game_bsc_settings_page() {
                     </tr>
                 </table>
             </div>
+
+            <!-- ========== TAB: BANNER MANAGEMENT ========== -->
+            <div id="tab-banners" class="wg-game-tab-content" style="display:none;">
+                <h2><?php _e('Quản lí banner', WG_GAME_PLUGIN_TEXTDOMAIN); ?></h2>
+                <table class="form-table">
+                    <tr>
+                        <th><label><?php _e('Ảnh banner hiển thị', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
+                        <td>
+                            <?php 
+                            $banner_id = get_option('game_bsc_banner_manager', ''); 
+                            $banner_url = $banner_id ? wp_get_attachment_image_url($banner_id, 'medium') : '';
+                            ?>
+                            <div class="image-preview-wrapper" style="margin-bottom: 10px;">
+                                <img id="banner_manager_preview" src="<?php echo esc_url($banner_url); ?>" style="max-width:300px; max-height:300px; display:<?php echo $banner_url ? 'block' : 'none'; ?>;" />
+                            </div>
+                            <input type="hidden" name="game_bsc_banner_manager" id="banner_manager_id" value="<?php echo esc_attr($banner_id); ?>">
+                            <button type="button" class="button" id="upload_banner_manager_button"><?php _e('Chọn ảnh', WG_GAME_PLUGIN_TEXTDOMAIN); ?></button>
+                            <button type="button" class="button" id="remove_banner_manager_button" style="display:<?php echo $banner_url ? 'inline-block' : 'none'; ?>;"><?php _e('Xóa ảnh', WG_GAME_PLUGIN_TEXTDOMAIN); ?></button>
+                            <p class="description"><?php _e('Chọn ảnh banner cho game BSC. Ảnh này sẽ được trả về thông qua API.', WG_GAME_PLUGIN_TEXTDOMAIN); ?></p>
+                        </td>
+                    </tr>
+                </table>
+            </div>
             <!-- SUBMIT BUTTON -->
             <p style="margin-top:30px; padding-top:20px; border-top:1px solid #ccc;">
                 <input type="submit" name="save_settings" class="button-primary" value="<?php _e('Lưu cài đặt', WG_GAME_PLUGIN_TEXTDOMAIN); ?>">
@@ -640,6 +666,16 @@ function game_bsc_settings_page() {
     <script>
         // ========== MEDIA UPLOADER FOR VOUCHER BANNER (jQuery) ==========
         jQuery(document).ready(function($) {
+            // Utility function to get attachment URL safely (prioritize smaller sizes for instant preview)
+            function getAttachmentUrl(attachment) {
+                if (attachment.sizes) {
+                    if (attachment.sizes.medium && attachment.sizes.medium.url) return attachment.sizes.medium.url;
+                    if (attachment.sizes.thumbnail && attachment.sizes.thumbnail.url) return attachment.sizes.thumbnail.url;
+                    if (attachment.sizes.full && attachment.sizes.full.url) return attachment.sizes.full.url;
+                }
+                return attachment.url || '';
+            }
+
             var banner_frame;
             $('#upload_default_redeemed_banner_button').on('click', function(e) {
                 e.preventDefault();
@@ -654,9 +690,12 @@ function game_bsc_settings_page() {
                 });
                 banner_frame.on('select', function() {
                     var attachment = banner_frame.state().get('selection').first().toJSON();
+                    var imageUrl = getAttachmentUrl(attachment);
                     $('#default_redeemed_banner_id').val(attachment.id);
-                    $('#default_redeemed_banner_preview').attr('src', attachment.url).show();
-                    $('#remove_default_redeemed_banner_button').show();
+                    if (imageUrl) {
+                        $('#default_redeemed_banner_preview').attr('src', imageUrl).css('display', 'block').show();
+                    }
+                    $('#remove_default_redeemed_banner_button').css('display', 'inline-block').show();
                 });
                 banner_frame.open();
             });
@@ -683,9 +722,12 @@ function game_bsc_settings_page() {
                 });
                 brand_logo_frame.on('select', function() {
                     var attachment = brand_logo_frame.state().get('selection').first().toJSON();
+                    var imageUrl = getAttachmentUrl(attachment);
                     $('#default_brand_logo_id').val(attachment.id);
-                    $('#default_brand_logo_preview').attr('src', attachment.url).show();
-                    $('#remove_default_brand_logo_button').show();
+                    if (imageUrl) {
+                        $('#default_brand_logo_preview').attr('src', imageUrl).css('display', 'block').show();
+                    }
+                    $('#remove_default_brand_logo_button').css('display', 'inline-block').show();
                 });
                 brand_logo_frame.open();
             });
@@ -694,6 +736,38 @@ function game_bsc_settings_page() {
                 e.preventDefault();
                 $('#default_brand_logo_id').val('');
                 $('#default_brand_logo_preview').attr('src', '').hide();
+                $(this).hide();
+            });
+
+            // ========== MEDIA UPLOADER FOR BANNER MANAGER ==========
+            var banner_manager_frame;
+            $('#upload_banner_manager_button').on('click', function(e) {
+                e.preventDefault();
+                if (banner_manager_frame) {
+                    banner_manager_frame.open();
+                    return;
+                }
+                banner_manager_frame = wp.media({
+                    title: 'Chọn ảnh banner',
+                    button: { text: 'Sử dụng ảnh này' },
+                    multiple: false
+                });
+                banner_manager_frame.on('select', function() {
+                    var attachment = banner_manager_frame.state().get('selection').first().toJSON();
+                    var imageUrl = getAttachmentUrl(attachment);
+                    $('#banner_manager_id').val(attachment.id);
+                    if (imageUrl) {
+                        $('#banner_manager_preview').attr('src', imageUrl).css('display', 'block').show();
+                    }
+                    $('#remove_banner_manager_button').css('display', 'inline-block').show();
+                });
+                banner_manager_frame.open();
+            });
+
+            $('#remove_banner_manager_button').on('click', function(e) {
+                e.preventDefault();
+                $('#banner_manager_id').val('');
+                $('#banner_manager_preview').attr('src', '').hide();
                 $(this).hide();
             });
         });
@@ -1334,6 +1408,20 @@ function game_bsc_handle_save_settings() {
             'game_bsc_default_brand_logo',
             $old_default_brand_logo,
             $default_brand_logo,
+            'update'
+        );
+    }
+
+    // Banner Manager
+    $old_banner_manager = get_option('game_bsc_banner_manager', '');
+    $banner_manager = intval($_POST['game_bsc_banner_manager'] ?? 0);
+    update_option('game_bsc_banner_manager', $banner_manager);
+
+    if ($old_banner_manager != $banner_manager) {
+        game_bsc_log_settings_change(
+            'game_bsc_banner_manager',
+            $old_banner_manager,
+            $banner_manager,
             'update'
         );
     }

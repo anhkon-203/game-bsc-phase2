@@ -1670,14 +1670,16 @@ function game_api_session_result(WP_REST_Request $r)
 
     // Tổng điểm: tổng points_awarded trong drop_logs cho session này (outcome = 'POINT')
     $total_points = (int) $wpdb->get_var($wpdb->prepare(
-        "SELECT COALESCE(SUM(points_awarded),0) FROM $t_drop WHERE session_id=%d AND outcome='POINT'",
-        $sid
+        "SELECT COALESCE(SUM(points_awarded),0) FROM $t_drop WHERE session_id=%d AND user_id=%d AND outcome='POINT'",
+        $sid,
+        $uid
     ));
 
     // Tổng mảnh: đếm các bản ghi outcome = 'PIECE' cho session này
     $total_pieces = (int) $wpdb->get_var($wpdb->prepare(
-        "SELECT COUNT(*) FROM $t_drop WHERE session_id=%d AND outcome='PIECE'",
-        $sid
+        "SELECT COUNT(*) FROM $t_drop WHERE session_id=%d AND user_id=%d AND outcome='PIECE'",
+        $sid,
+        $uid
     ));
 
     // Chặng hiện tại
@@ -1690,8 +1692,8 @@ function game_api_session_result(WP_REST_Request $r)
 
     // Tìm artifact_won thông qua drop_logs:
     //   1. Lấy artifact_id có mảnh rơi trong session này
-    //   2. Join với redemptions để xem artifact đó đã auto-redeem chưa
-    // Cách này chính xác hơn so sánh thời gian (redeemed_at có thể lệch vài giây so với finished_at)
+    //   2. Join với redemptions của cùng user trong khoảng thời gian session hiện tại
+    // Nếu chỉ join theo user_id + artifact_id, session sau có thể báo lại redemption cũ.
     $artifact_won = $wpdb->get_row( $wpdb->prepare(
         "SELECT r.artifact_id, r.redeemed_at, a.name AS artifact_name, a.artifacts_url
          FROM $t_drop d
@@ -1701,34 +1703,16 @@ function game_api_session_result(WP_REST_Request $r)
          WHERE d.session_id = %d
            AND d.user_id = %d
            AND d.outcome = 'PIECE'
+           AND r.redeemed_at >= %s
+           AND r.redeemed_at <= %s
          ORDER BY r.redeemed_at DESC
          LIMIT 1",
         $sid,
-        $uid
+        $uid,
+        $sess->started_at,
+        $sess->finished_at
     ) );
 
-    // $resp = [
-    //     'session' => [
-    //         'id' => $sid,
-    //         'started_at' => $sess->started_at,
-    //         'finished_at' => $sess->finished_at,
-    //         'questions_total' => (int)$sess->questions_count,
-    //         'correct_count' => (int)$sess->correct_count,
-    //         'total_points' => $total_points,
-    //         'total_pieces' => $total_pieces,
-    //         'current_stage' => $current_stage['day_index'],
-    //         'status' => (int)$sess->current_stage_status,
-    //     ],
-    //     'artifact_won' => $artifact_won ? [
-    //         'artifact_id'   => (int) $artifact_won->artifact_id,
-    //         'artifact_name' => $artifact_won->artifact_name,
-    //         'artifacts_url' => $artifact_won->artifacts_url,
-    //         'redeemed_at'   => $artifact_won->redeemed_at,
-    //     ] : null,
-    // ];
-
-
-    // fake data để test phần frontend hiển thị kết quả trúng thưởng
     $resp = [
         'session' => [
             'id' => $sid,
@@ -1741,12 +1725,12 @@ function game_api_session_result(WP_REST_Request $r)
             'current_stage' => $current_stage['day_index'],
             'status' => (int)$sess->current_stage_status,
         ],
-        'artifact_won' => [
-            'artifact_id'   => 123,
-            'artifact_name' => 'Hiện vật đặc biệt',
-            'artifacts_url' => 'http://bsc.wecan-group.info/wp-content/uploads/2025/12/Group-1171275169.png',
-            'redeemed_at'   => game_now(),
-        ],
+        'artifact_won' => $artifact_won ? [
+            'artifact_id'   => (int) $artifact_won->artifact_id,
+            'artifact_name' => $artifact_won->artifact_name,
+            'artifacts_url' => $artifact_won->artifacts_url,
+            'redeemed_at'   => $artifact_won->redeemed_at,
+        ] : null,
     ];
 
 

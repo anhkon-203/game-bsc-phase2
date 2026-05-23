@@ -209,7 +209,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         $base_urls = [
             'apiurl' => (string)get_field('cdapi_ip_address_apiurl', 'option'),
-            'apinoibo' => (string)get_field('cdapi_ip_address_apinoibo', 'option'),
+            'apinoibo' => (string)get_option('game_bsc_api_base_url'),
             'tradingserver' => (string)get_field('cdapi_ip_address_tradingserver', 'option'),
             'full' => '',
         ];
@@ -320,6 +320,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
     }
+
+    if ($action === 'test_mission_logic') {
+        $active_tab = 'tab-missions';
+        $mission_code = sanitize_text_field($_POST['mission_code'] ?? '');
+        $stk = sanitize_text_field(wp_unslash($_POST['test_stk'] ?? ''));
+        $txdate = sanitize_text_field($_POST['txdate'] ?? '');
+        
+        $mission_test_result = [];
+        
+        if (empty($mission_code) || empty($stk)) {
+            $mission_test_result = ['ok' => false, 'error' => 'Vui lòng nhập Custodycd và chọn Nhiệm vụ.'];
+        } else {
+            // Load API config
+            $api_base = getEndpointFromMissionCode($mission_code);
+            if (empty($api_base['base_url']) || empty($api_base['end_point'])) {
+                $mission_test_result = ['ok' => false, 'error' => 'Lỗi cấu hình nhiệm vụ, không tìm thấy URL.'];
+            } else {
+                $apiBaseUrl = $api_base['base_url'];
+                $endpoint = $api_base['end_point'];
+                $url = $apiBaseUrl . $endpoint;
+                
+                // Build data based on mission code
+                $data = ['custodycd' => $stk];
+                $dStart = get_option('game_bsc_start_date');
+                $dEnd = get_option('game_bsc_end_date');
+                
+                if ($mission_code === MTRADER_LOGIN_CODE) {
+                    $data['txdate'] = $txdate ?: game_now('date');
+                } else if ($mission_code === FIRST_DEPOSIT_CODE) {
+                    $data['dstart'] = $dStart;
+                    $data['dend'] = $dEnd;
+                    $data['transactionvalue'] = 10000;
+                } else if (in_array($mission_code, [OPEN_BSC_DERIVATIVE_ACCOUNT_CODE, EKYC_COMPLETE_CODE, OPEN_BIDV_CODE, OPEN_NEW_ACCOUNT_CODE, OPEN_MARGIN_ACCOUNT_CODE, USE_BSC_BUY_PACKAGE_CODE, USE_MR90_PACKAGE_CODE])) {
+                    $data['dstart'] = $dStart;
+                    $data['dend'] = $dEnd;
+                } else if ($mission_code === TRADE_100M_VND_CODE) {
+                    $amount_required = isset($api_base['amount_required']) ? $api_base['amount_required'] : 100000000;
+                    if ($amount_required >= 1000000) {
+                        $amount_required = (int)($amount_required / 1000);
+                    }
+                    $data['txdate'] = $txdate ?: game_now('date');
+                    $data['transactionvalue'] = $amount_required;
+                }
+                
+                $started_at = microtime(true);
+                $response = callApiGame($url, http_build_query($data, '', '&', PHP_QUERY_RFC3986), 'POST');
+                $elapsed_ms = (int)round((microtime(true) - $started_at) * 1000);
+                
+                if (!$response) {
+                    $mission_test_result = [
+                        'ok' => false, 
+                        'error' => 'API Error or Timeout',
+                        'url' => $url,
+                        'payload' => $data,
+                        'elapsed_ms' => $elapsed_ms
+                    ];
+                } else {
+                    $mission_test_result = [
+                        'ok' => true,
+                        'url' => $url,
+                        'payload' => $data,
+                        'elapsed_ms' => $elapsed_ms,
+                        'response' => $response
+                    ];
+                }
+            }
+        }
+    }
 }
 
 // ===== LẤY DỮ LIỆU =====
@@ -402,7 +470,10 @@ if (defined('NS') && function_exists('rest_get_server')) {
 }
 
 $customer_user_info_api = rtrim((string)get_field('cdapi_ip_address_apiurl', 'option'), '/') . '/user/info';
-$customer_internal_api = rtrim((string)get_field('cdapi_ip_address_apinoibo', 'option'), '/') . '/api/MarketData/GetCustomerByCustodycd';
+$apinoibo_url = rtrim((string)get_option('game_bsc_api_base_url'), '/');
+$customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
+    ? $apinoibo_url . '/MarketData/GetCustomerByCustodycd'
+    : $apinoibo_url . '/api/MarketData/GetCustomerByCustodycd';
 
 ?>
 <!DOCTYPE html>
@@ -499,6 +570,7 @@ $customer_internal_api = rtrim((string)get_field('cdapi_ip_address_apinoibo', 'o
 
     <div class="tabs" role="tablist">
         <button type="button" class="tab-btn <?php echo $active_tab === 'tab-drops' ? 'active' : ''; ?>" data-tab-target="tab-drops">Test drop</button>
+        <button type="button" class="tab-btn <?php echo $active_tab === 'tab-missions' ? 'active' : ''; ?>" data-tab-target="tab-missions">Test Nhiệm Vụ</button>
         <button type="button" class="tab-btn <?php echo $active_tab === 'tab-api' ? 'active' : ''; ?>" data-tab-target="tab-api">Test API</button>
     </div>
 
@@ -778,6 +850,91 @@ $customer_internal_api = rtrim((string)get_field('cdapi_ip_address_apinoibo', 'o
             </div>
         </div>
     </div>
+    </div>
+
+    <div id="tab-missions" class="tab-panel <?php echo $active_tab === 'tab-missions' ? 'active' : ''; ?>">
+        <div class="card">
+            <h2>Kiểm tra Logic Nhiệm Vụ</h2>
+            <p style="margin-bottom:16px;color:#64748b;font-size:12px;">
+                Chức năng này dùng để giả lập việc gọi API kiểm tra nhiệm vụ đến BSC cho một User cụ thể.
+                <br><strong>Lưu ý:</strong> Chức năng chỉ hiển thị kết quả trả về từ BSC, KHÔNG lưu lịch sử hoàn thành hay cộng điểm cho người dùng trên hệ thống.
+            </p>
+            <form method="post" class="api-tester">
+                <?php wp_nonce_field('game_test_drops'); ?>
+                <input type="hidden" name="action" value="test_mission_logic">
+                
+                <div class="grid">
+                    <div class="api-field">
+                        <label for="test_stk">Custodycd / STK (Bắt buộc)</label>
+                        <input type="text" id="test_stk" name="test_stk" value="<?php echo esc_attr($_POST['test_stk'] ?? ''); ?>" placeholder="Ví dụ: 026C..." required>
+                    </div>
+                    
+                    <div class="api-field">
+                        <label for="mission_code">Chọn Nhiệm vụ (Bắt buộc)</label>
+                        <select id="mission_code" name="mission_code" required style="width:100%;">
+                            <option value="">-- Chọn nhiệm vụ --</option>
+                            <?php 
+                            $mission_list = include GAME_BSC_PLUGIN_DIR . 'config/missions.php';
+                            if (is_array($mission_list)) {
+                                foreach ($mission_list as $m) {
+                                    $selected = (($_POST['mission_code'] ?? '') === $m['code']) ? 'selected' : '';
+                                    echo '<option value="' . esc_attr($m['code']) . '" ' . $selected . '>' . esc_html($m['title'] . ' (' . $m['code'] . ')') . '</option>';
+                                }
+                            }
+                            ?>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="api-field">
+                    <label for="txdate">Ngày giao dịch (txdate)</label>
+                    <input type="date" id="txdate" name="txdate" value="<?php echo esc_attr($_POST['txdate'] ?? game_now('date')); ?>" style="padding:8px 10px; border-radius:6px; background:#0f172a; border:1px solid #475569; color:#e2e8f0; width:100%; max-width:200px;">
+                    <p style="margin-top:6px;color:#64748b;font-size:12px;">Chỉ bắt buộc với các nhiệm vụ cần kiểm tra theo ngày (như giao dịch 100M, đăng nhập MTrader).</p>
+                </div>
+
+                <div class="api-actions" style="margin-top: 16px;">
+                    <button type="submit" class="btn btn-success">Test Mission API</button>
+                </div>
+            </form>
+
+            <?php if (isset($mission_test_result)): ?>
+                <h2 style="margin-top: 24px;">Kết quả trả về</h2>
+                <div class="api-result-meta">
+                    <?php if (empty($mission_test_result['ok'])): ?>
+                        <span class="badge badge-red">Lỗi Request</span>
+                    <?php else: ?>
+                        <span class="badge badge-green">Thành công</span>
+                    <?php endif; ?>
+                    
+                    <?php if (isset($mission_test_result['elapsed_ms'])): ?>
+                        <span class="badge badge-blue"><?php echo esc_html($mission_test_result['elapsed_ms']); ?>ms</span>
+                    <?php endif; ?>
+                    
+                    <?php if (!empty($mission_test_result['response']) && isset($mission_test_result['response']->s)): ?>
+                        <span class="badge <?php echo ($mission_test_result['response']->s === 'ok') ? 'badge-green' : 'badge-red'; ?>">
+                            Status: <?php echo esc_html($mission_test_result['response']->s); ?>
+                        </span>
+                        <?php if (isset($mission_test_result['response']->d)): ?>
+                            <span class="badge <?php echo (!empty($mission_test_result['response']->d)) ? 'badge-green' : 'badge-yellow'; ?>">
+                                Data (Lượt chơi): <?php echo esc_html(is_bool($mission_test_result['response']->d) ? ($mission_test_result['response']->d ? 'true' : 'false') : (is_scalar($mission_test_result['response']->d) ? $mission_test_result['response']->d : wp_json_encode($mission_test_result['response']->d))); ?>
+                            </span>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+
+                <?php if (!empty($mission_test_result['url'])): ?>
+                    <p style="margin-bottom:8px;font-size:13px;"><strong>URL:</strong> <span class="mono" style="color:#94a3b8;"><?php echo esc_html($mission_test_result['url']); ?></span></p>
+                <?php endif; ?>
+                
+                <?php if (!empty($mission_test_result['payload'])): ?>
+                    <p style="margin-bottom:8px;font-size:13px;"><strong>Payload đã gửi:</strong></p>
+                    <pre style="margin-bottom:16px;"><?php echo esc_html(print_r($mission_test_result['payload'], true)); ?></pre>
+                <?php endif; ?>
+
+                <p style="margin-bottom:8px;font-size:13px;"><strong>Raw Response:</strong></p>
+                <pre><?php echo esc_html(wp_json_encode($mission_test_result['response'] ?? $mission_test_result['error'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?></pre>
+            <?php endif; ?>
+        </div>
     </div>
 
     <div id="tab-api" class="tab-panel <?php echo $active_tab === 'tab-api' ? 'active' : ''; ?>">

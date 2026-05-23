@@ -2915,22 +2915,22 @@ function game_get_user_voucher_redemptions($user_id, $exclude_gotit = true)
 		$points_cost = (int)(get_field('points_cost', $voucher_id) ?? 0);
 		$voucheramt = (float) (get_post_meta($voucher_id, 'voucheramt', true) ?: 0);
 		$prinpaid = (float) (get_post_meta($voucher_id, 'prinpaid', true) ?: 0);
-		// Lấy ảnh banner đổi quà (ưu tiên ACF, fallback default, fallback thumbnail)
+		// Lấy ảnh banner đổi quà (ưu tiên featured image/ảnh nổi bật trước)
 		$redeemed_banner_image_url = '';
-		$redeemed_banner_id = get_field('redeemed_banner_image', $voucher_id);
-		if ($redeemed_banner_id) {
-			$redeemed_banner_image_url = wp_get_attachment_image_url($redeemed_banner_id, 'full') ?: '';
+		$redeemed_banner_thumb_id = get_post_thumbnail_id($voucher_id);
+		if ($redeemed_banner_thumb_id) {
+			$redeemed_banner_image_url = wp_get_attachment_image_url($redeemed_banner_thumb_id, 'full') ?: '';
+		}
+		if (!$redeemed_banner_image_url) {
+			$redeemed_banner_id = get_field('redeemed_banner_image', $voucher_id);
+			if ($redeemed_banner_id) {
+				$redeemed_banner_image_url = wp_get_attachment_image_url($redeemed_banner_id, 'full') ?: '';
+			}
 		}
 		if (!$redeemed_banner_image_url) {
 			$default_banner_id = get_option('game_bsc_default_redeemed_banner');
 			if ($default_banner_id) {
 				$redeemed_banner_image_url = wp_get_attachment_image_url($default_banner_id, 'full') ?: '';
-			}
-		}
-		if (!$redeemed_banner_image_url) {
-			$redeemed_banner_thumb_id = get_post_thumbnail_id($voucher_id);
-			if ($redeemed_banner_thumb_id) {
-				$redeemed_banner_image_url = wp_get_attachment_image_url($redeemed_banner_thumb_id, 'full') ?: '';
 			}
 		}
 		// Lấy partner (ACF group field)

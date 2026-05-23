@@ -1883,6 +1883,28 @@ function game_bsc_gotit_voucher_list_sync_button() {
     <style>
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .dashicons.spin { display:inline-block; animation: spin 1s linear infinite; }
+        #game-bsc-gotit-toolbar button.button {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            height: 32px !important;
+            line-height: 1 !important;
+            padding: 0 12px !important;
+            margin: 0 !important;
+            vertical-align: middle !important;
+            box-shadow: none !important;
+        }
+        #game-bsc-gotit-toolbar button.button .dashicons {
+            margin: 0 4px 0 0 !important;
+            vertical-align: middle !important;
+            display: inline-block !important;
+            float: none !important;
+            position: static !important;
+            width: 20px !important;
+            height: 20px !important;
+            font-size: 20px !important;
+            line-height: 20px !important;
+        }
         #game-bsc-gotit-toolbar {
             display: flex;
             flex-direction: column;

@@ -569,6 +569,11 @@ function user_complete_mission($user_id, $misson_code) {
  * @return string
  */
 function game_bsc_get_mission_label($mission_code = '') {
+	$tasks = get_option('game_bsc_tasks', []);
+	if (is_array($tasks) && isset($tasks[$mission_code]['title']) && trim($tasks[$mission_code]['title']) !== '') {
+		return trim($tasks[$mission_code]['title']);
+	}
+
 	$labels = [
 		DAILY_LOGIN_CODE => 'Đăng nhập hàng ngày',
 		MTRADER_LOGIN_CODE => 'Đăng nhập MTrader',

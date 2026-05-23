@@ -730,10 +730,12 @@ function bsc_game_handle_sso_callback()
   }
 
   // ===== RULE: Kiểm tra loại tài khoản (Cá nhân hay Tổ chức) =====
-  $server_api_noi_bo = get_field('cdapi_ip_address_apinoibo', 'option');
+  $server_api_noi_bo = get_option('game_bsc_api_base_url');
   if (!empty($server_api_noi_bo)) {
       $server_api_noi_bo = rtrim($server_api_noi_bo, '/');
-      $api_url_market_data = $server_api_noi_bo . '/api/MarketData/GetCustomerByCustodycd';
+      $api_url_market_data = (strpos($server_api_noi_bo, '/api') !== false)
+          ? $server_api_noi_bo . '/MarketData/GetCustomerByCustodycd'
+          : $server_api_noi_bo . '/api/MarketData/GetCustomerByCustodycd';
       
       $response = wp_remote_post($api_url_market_data, [
         'body'    => ['custodycd' => $custodycd],

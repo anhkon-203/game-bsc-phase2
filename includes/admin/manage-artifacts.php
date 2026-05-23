@@ -331,7 +331,7 @@ function game_bsc_manage_artifacts_page() {
                     </td>
                 </tr>
                 <tr>
-                    <th>Trọng số rơi mảnh</th>
+                    <th>Trọng số giữa các quà tặng hiện vật</th>
                     <td>
                         <input type="number" name="artifacts[${index}][drop_weight]" min="1" max="100" value="1" style="width:80px;">
                         <p class="description">Giá trị càng cao thì hiện vật này càng có nhiều khả năng được chọn khi random mảnh. Ví dụ: HV1=40, HV2=10 → HV1 có xác suất gấp 4 lần HV2.</p>
@@ -1018,7 +1018,7 @@ function game_bsc_render_artifact_fieldset_prefilled($index, $artifact, $pieces)
                 </td>
             </tr>
             <tr>
-                <th>Trọng số rơi mảnh</th>
+                <th>Trọng số giữa các quà tặng hiện vật</th>
                 <td>
                     <input type="number" name="artifacts[<?php echo (int)$index; ?>][drop_weight]" min="1" max="100" value="<?php echo (int)($artifact->drop_weight ?? 1); ?>" style="width:80px;">
                     <p class="description">Giá trị càng cao thì hiện vật này càng có nhiều khả năng được chọn khi random mảnh. Ví dụ: HV1=40, HV2=10 → HV1 có xác suất gấp 4 lần HV2.</p>

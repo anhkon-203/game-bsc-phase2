@@ -903,7 +903,17 @@ if (!function_exists('game_bsc_handle_export_vouchers_excel')) {
         }
 
         if (true) {
-            $headers = game_bsc_voucher_excel_required_headers();
+            $headers = [
+                'voucher_id',
+                'voucher_code',
+                'voucher_title',
+                'voucher_type',
+                'Danh mục voucher',
+                'gotit_product_id',
+                'gotit_product_price_id',
+                'points_cost',
+                'snapshot_post_modified_gmt',
+            ];
             $filename = 'game-vouchers-third-party-points-' . gmdate('Ymd-His') . '.csv';
             $temp_file = wp_tempnam($filename);
 
@@ -937,11 +947,16 @@ if (!function_exists('game_bsc_handle_export_vouchers_excel')) {
                     }
 
                     foreach ($rows as $row) {
+                        $voucher_id = (int) ($row['voucher_id'] ?? 0);
+                        $categories = wp_get_post_terms($voucher_id, 'game_voucher_category', array('fields' => 'names'));
+                        $category_display = !empty($categories) && !is_wp_error($categories) ? implode(', ', $categories) : '';
+
                         fputcsv($temp_handle, [
-                            (int) ($row['voucher_id'] ?? 0),
+                            $voucher_id,
                             game_bsc_voucher_excel_safe_text((string) ($row['voucher_code'] ?? '')),
                             game_bsc_voucher_excel_safe_text((string) ($row['voucher_title'] ?? '')),
                             game_bsc_voucher_excel_safe_text((string) ($row['voucher_type'] ?? '')),
+                            game_bsc_voucher_excel_safe_text($category_display),
                             game_bsc_voucher_excel_safe_text((string) ($row['gotit_product_id'] ?? '')),
                             game_bsc_voucher_excel_safe_text((string) ($row['gotit_product_price_id'] ?? '')),
                             (int) ($row['points_cost'] ?? 0),
@@ -989,7 +1004,17 @@ if (!function_exists('game_bsc_handle_export_vouchers_excel')) {
             ], 'error');
         }
 
-        $headers = game_bsc_voucher_excel_required_headers();
+        $headers = [
+            'voucher_id',
+            'voucher_code',
+            'voucher_title',
+            'voucher_type',
+            'Danh mục voucher',
+            'gotit_product_id',
+            'gotit_product_price_id',
+            'points_cost',
+            'snapshot_post_modified_gmt',
+        ];
         $filename = 'game-vouchers-third-party-points-' . gmdate('Ymd-His') . '.xlsx';
         $temp_file = wp_tempnam($filename);
 
@@ -1025,14 +1050,19 @@ if (!function_exists('game_bsc_handle_export_vouchers_excel')) {
                 }
 
                 foreach ($rows as $row) {
-                    $sheet->setCellValueExplicit('A' . $row_number, (string) ((int) ($row['voucher_id'] ?? 0)), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                    $voucher_id = (int) ($row['voucher_id'] ?? 0);
+                    $categories = wp_get_post_terms($voucher_id, 'game_voucher_category', array('fields' => 'names'));
+                    $category_display = !empty($categories) && !is_wp_error($categories) ? implode(', ', $categories) : '';
+
+                    $sheet->setCellValueExplicit('A' . $row_number, (string) $voucher_id, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
                     $sheet->setCellValueExplicit('B' . $row_number, game_bsc_voucher_excel_safe_text((string) ($row['voucher_code'] ?? '')), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
                     $sheet->setCellValueExplicit('C' . $row_number, game_bsc_voucher_excel_safe_text((string) ($row['voucher_title'] ?? '')), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
                     $sheet->setCellValueExplicit('D' . $row_number, game_bsc_voucher_excel_safe_text((string) ($row['voucher_type'] ?? '')), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-                    $sheet->setCellValueExplicit('E' . $row_number, game_bsc_voucher_excel_safe_text((string) ($row['gotit_product_id'] ?? '')), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-                    $sheet->setCellValueExplicit('F' . $row_number, game_bsc_voucher_excel_safe_text((string) ($row['gotit_product_price_id'] ?? '')), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-                    $sheet->setCellValueExplicit('G' . $row_number, (string) ((int) ($row['points_cost'] ?? 0)), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-                    $sheet->setCellValueExplicit('H' . $row_number, (string) ($row['snapshot_post_modified_gmt'] ?? ''), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                    $sheet->setCellValueExplicit('E' . $row_number, game_bsc_voucher_excel_safe_text($category_display), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                    $sheet->setCellValueExplicit('F' . $row_number, game_bsc_voucher_excel_safe_text((string) ($row['gotit_product_id'] ?? '')), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                    $sheet->setCellValueExplicit('G' . $row_number, game_bsc_voucher_excel_safe_text((string) ($row['gotit_product_price_id'] ?? '')), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                    $sheet->setCellValueExplicit('H' . $row_number, (string) ((int) ($row['points_cost'] ?? 0)), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                    $sheet->setCellValueExplicit('I' . $row_number, (string) ($row['snapshot_post_modified_gmt'] ?? ''), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
                     $row_number++;
                 }
 
