@@ -52,16 +52,31 @@ function game_bsc_get_banner(WP_REST_Request $request) {
 	if (!$check_nonce){
 		return wg_json_response(403, [], __('Yêu cầu không hợp lệ.', WG_GAME_PLUGIN_TEXTDOMAIN));
 	}
-	
+
 	$banner_id = get_option('game_bsc_banner_manager', '');
 	$banner_url = '';
 	if ($banner_id) {
 		$banner_url = wp_get_attachment_image_url($banner_id, 'full') ?: '';
 	}
-	
+
+	$banner_mobile_id = get_option('game_bsc_banner_mobile', '');
+	$banner_mobile_url = '';
+	if ($banner_mobile_id) {
+		$banner_mobile_url = wp_get_attachment_image_url($banner_mobile_id, 'full') ?: '';
+	}
+
+	$banner_text = get_option('game_bsc_banner_text', '');
+	$banner_icon_id = get_option('game_bsc_banner_icon', '');
+	$banner_icon_url = '';
+	if ($banner_icon_id) {
+		$banner_icon_url = wp_get_attachment_image_url($banner_icon_id, 'full') ?: '';
+	}
+
 	return wg_json_response(200, [
-		'banner_id' => $banner_id ? intval($banner_id) : null,
 		'banner_url' => esc_url($banner_url),
+		'banner_mobile_url' => esc_url($banner_mobile_url),
+		'banner_text' => esc_html($banner_text),
+		'banner_icon_url' => esc_url($banner_icon_url),
 	], __('Lấy banner game thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
 }
 

@@ -52,10 +52,14 @@ function game_bsc_get_current_stage(): ?array {
     }
 
     $current_stage = null;
-	$current_user = game_sso_require_session();
-	$user_id = absint($current_user['id']);
-	$data_day = game_bsc_compute_day_index_v2( $user_id);
-	$day_index = $data_day['day_index'];
+    $current_user = game_sso_require_session();
+    if (is_wp_error($current_user)) {
+        $data_day = game_bsc_compute_day_index();
+    } else {
+        $user_id = absint($current_user['id']);
+        $data_day = game_bsc_compute_day_index_v2($user_id);
+    }
+    $day_index = $data_day['day_index'] ?? 0;
     foreach ($stages as $stg) {
         $from = $stg['from_stage'] ?? null;
         $to   = $stg['to_stage']   ?? null;

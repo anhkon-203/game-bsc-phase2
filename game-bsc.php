@@ -562,7 +562,7 @@ function game_set_auth_cookie($token, $ttl = 10800) {
 
 /**
  * Đánh dấu cookie báo đây là tài khoản không hợp lệ (nước ngoài hoặc tổ chức).
- * Cookie được PHP server đọc qua $_COOKIE để trả về error_code='invalid_account' trong API response.
+ * Cookie được PHP server đọc qua $_COOKIE để trả về error_code='game_invalid_account' trong API response.
  * httpOnly=true vì chỉ server cần đọc, JS không cần truy cập trực tiếp.
  */
 function game_set_invalid_account_cookie($ttl = 10800) {
@@ -907,28 +907,28 @@ function game_sso_require_session() {
 
    
     // Code dev
-    $user = [
-        'id'       => 1,
-        'provider'    => 'bsc',
-        'external_user_id'    => '123456',
-        'name'    => 'Triệu Ngọc Tài',
-        'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
-    ];
+    // $user = [
+    //     'id'       => 1,
+    //     'provider'    => 'bsc',
+    //     'external_user_id'    => '123456',
+    //     'name'    => 'Triệu Ngọc Tài',
+    //     'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
+    // ];
     // 5) Lưu SESSION và trả về
-    $_SESSION['game_user']        = $user;
-    $_SESSION['game_logged_in_at'] = time();
-      if (session_status() === PHP_SESSION_ACTIVE) {
-          session_write_close(); // nhả khóa ngay
-      }
-    return $user;
+    // $_SESSION['game_user']        = $user;
+    // $_SESSION['game_logged_in_at'] = time();
+    //   if (session_status() === PHP_SESSION_ACTIVE) {
+    //       session_write_close(); // nhả khóa ngay
+    //   }
+    // return $user;
 
   // Kiểm tra token từ cookie
-  // if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
-  //   $user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
-  //   if (!is_wp_error($user)) {
-  //     return $user;
-  //   }
-  // }
+  if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
+    $user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
+    if (!is_wp_error($user)) {
+      return $user;
+    }
+  }
 
   return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
 }

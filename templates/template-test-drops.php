@@ -27,7 +27,26 @@ $now = new DateTimeImmutable('now', $tz);
 // ===== XỬ LÝ ACTION =====
 $message = '';
 $message_type = '';
+// Determine active tab from query param or POST param
 $active_tab = 'tab-drops';
+if (isset($_GET['tab'])) {
+    $active_tab = 'tab-' . sanitize_key($_GET['tab']);
+} elseif (isset($_POST['tab'])) {
+    $active_tab = 'tab-' . sanitize_key($_POST['tab']);
+}
+
+// Override active tab based on POST action to ensure robustness on form actions
+if (isset($_POST['action'])) {
+    if ($_POST['action'] === 'bsc_external_api_call') {
+        $active_tab = 'tab-api';
+    } elseif ($_POST['action'] === 'test_mission_logic') {
+        $active_tab = 'tab-missions';
+    }
+}
+
+if (!in_array($active_tab, ['tab-drops', 'tab-missions', 'tab-api'], true)) {
+    $active_tab = 'tab-drops';
+}
 $bsc_external_result = null;
 $bsc_external_form = [
     'base' => 'apinoibo',
@@ -104,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     $action = sanitize_text_field($_POST['action']);
 
-    if ($action === 'simulate_drop') {
+    if ($active_tab === 'tab-drops' && $action === 'simulate_drop') {
         $test_user_id = (int)($_POST['user_id'] ?? 0);
         if ($test_user_id > 0) {
             // session_id INT UNSIGNED max ~4.2B → dùng time() (~1.7B) + random order
@@ -120,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
-    if ($action === 'grant_pieces') {
+    if ($active_tab === 'tab-drops' && $action === 'grant_pieces') {
         $test_user_id = (int)($_POST['user_id'] ?? 0);
         $artifact_id  = (int)($_POST['artifact_id'] ?? 0);
         $pieces_to_grant = isset($_POST['pieces']) ? array_map('intval', $_POST['pieces']) : [];
@@ -148,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
-    if ($action === 'reset_user_pieces') {
+    if ($active_tab === 'tab-drops' && $action === 'reset_user_pieces') {
         $test_user_id = (int)($_POST['user_id'] ?? 0);
         if ($test_user_id > 0) {
             $wpdb->delete($prefix . 'user_pieces', ['user_id' => $test_user_id]);
@@ -158,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
-    if ($action === 'reset_all_data') {
+    if ($active_tab === 'tab-drops' && $action === 'reset_all_data') {
         $wpdb->query("TRUNCATE TABLE {$prefix}user_pieces");
         $wpdb->query("TRUNCATE TABLE {$prefix}user_pieces_ledger");
         $wpdb->query("TRUNCATE TABLE {$prefix}user_artifact_redemptions");
@@ -167,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $message_type = 'success';
     }
 
-    if ($action === 'create_test_users') {
+    if ($active_tab === 'tab-drops' && $action === 'create_test_users') {
         $count = (int)($_POST['count'] ?? 10);
         $count = min(max(1, $count), 50);
         $created = 0;
@@ -191,7 +210,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $message_type = 'success';
     }
 
-    if ($action === 'bsc_external_api_call') {
+    if ($active_tab === 'tab-api' && $action === 'bsc_external_api_call') {
         $active_tab = 'tab-api';
         $bsc_external_form = [
             'base' => sanitize_key($_POST['bsc_base'] ?? 'apinoibo'),
@@ -321,7 +340,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
-    if ($action === 'test_mission_logic') {
+    if ($active_tab === 'tab-missions' && $action === 'test_mission_logic') {
         $active_tab = 'tab-missions';
         $mission_code = sanitize_text_field($_POST['mission_code'] ?? '');
         $stk = sanitize_text_field(wp_unslash($_POST['test_stk'] ?? ''));
@@ -391,6 +410,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // ===== LẤY DỮ LIỆU =====
+$users = [];
+$artifacts = [];
+$selected_user_id = 0;
+$user_pieces = [];
+$user_redemptions = [];
+$api_routes = [];
+$customer_user_info_api = '';
+$apinoibo_url = '';
+$customer_internal_api = '';
+
+if ($active_tab === 'tab-drops') {
 
 // Danh sách users (top 50)
 $users = $wpdb->get_results("SELECT id, name, external_user_id FROM {$prefix}users ORDER BY id LIMIT 50");
@@ -419,7 +449,7 @@ if ($selected_user_id > 0) {
 }
 
 // Check user đã hoàn thành bộ nào chưa
-$user_redemptions = [];
+// Redemptions already initialized
 if ($selected_user_id > 0) {
     $user_redemptions = $wpdb->get_results($wpdb->prepare(
         "SELECT r.*, a.name as artifact_name
@@ -430,6 +460,7 @@ if ($selected_user_id > 0) {
     ));
 }
 
+} elseif ($active_tab === 'tab-api') {
 $api_routes = [];
 if (defined('NS') && function_exists('rest_get_server')) {
     $rest_server = rest_get_server();
@@ -474,6 +505,7 @@ $apinoibo_url = rtrim((string)get_option('game_bsc_api_base_url'), '/');
 $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
     ? $apinoibo_url . '/MarketData/GetCustomerByCustodycd'
     : $apinoibo_url . '/api/MarketData/GetCustomerByCustodycd';
+}
 
 ?>
 <!DOCTYPE html>
@@ -574,12 +606,14 @@ $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
         <button type="button" class="tab-btn <?php echo $active_tab === 'tab-api' ? 'active' : ''; ?>" data-tab-target="tab-api">Test API</button>
     </div>
 
-    <div id="tab-drops" class="tab-panel <?php echo $active_tab === 'tab-drops' ? 'active' : ''; ?>">
+    <?php if ($active_tab === 'tab-drops'): ?>
+    <div id="tab-drops" class="tab-panel active">
 
     <!-- ===== CHỌN USER ===== -->
     <div class="card">
         <h2>👤 Chọn User để test</h2>
         <form method="get" action="" class="inline-form">
+            <input type="hidden" name="tab" value="drops">
             <select name="user_id" onchange="this.form.submit()">
                 <?php foreach ($users as $u): ?>
                     <option value="<?php echo $u->id; ?>" <?php selected($selected_user_id, $u->id); ?>>
@@ -851,8 +885,10 @@ $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
         </div>
     </div>
     </div>
+    <?php endif; ?>
 
-    <div id="tab-missions" class="tab-panel <?php echo $active_tab === 'tab-missions' ? 'active' : ''; ?>">
+    <?php if ($active_tab === 'tab-missions'): ?>
+    <div id="tab-missions" class="tab-panel active">
         <div class="card">
             <h2>Kiểm tra Logic Nhiệm Vụ</h2>
             <p style="margin-bottom:16px;color:#64748b;font-size:12px;">
@@ -861,6 +897,7 @@ $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
             </p>
             <form method="post" class="api-tester">
                 <?php wp_nonce_field('game_test_drops'); ?>
+                <input type="hidden" name="tab" value="missions">
                 <input type="hidden" name="action" value="test_mission_logic">
                 
                 <div class="grid">
@@ -936,8 +973,10 @@ $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
             <?php endif; ?>
         </div>
     </div>
+    <?php endif; ?>
 
-    <div id="tab-api" class="tab-panel <?php echo $active_tab === 'tab-api' ? 'active' : ''; ?>">
+    <?php if ($active_tab === 'tab-api'): ?>
+    <div id="tab-api" class="tab-panel active">
         <div class="card">
             <h2>API lay thong tin khach hang</h2>
             <table>
@@ -971,6 +1010,7 @@ $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
             <h2>Test BSC external API</h2>
             <form method="post" class="api-tester">
                 <?php wp_nonce_field('game_test_drops'); ?>
+                <input type="hidden" name="tab" value="api">
                 <input type="hidden" name="action" value="bsc_external_api_call">
 
                 <div class="grid">
@@ -1135,7 +1175,9 @@ $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
             </div>
         </div>
     </div>
+    <?php endif; ?>
 </div>
+<?php if ($active_tab === 'tab-api'): ?>
 <script>
 (function () {
     const routes = <?php echo wp_json_encode($api_routes); ?>;
@@ -1318,11 +1360,7 @@ $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
         setStatus('Done');
     }
 
-    document.querySelectorAll('.tab-btn').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            setActiveTab(btn.dataset.tabTarget);
-        });
-    });
+    // Client-side dynamic switching removed to reload page on tab change
 
     routeButtons.forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -1337,6 +1375,18 @@ $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
 
     renderRoute(0);
 })();
+</script>
+<?php endif; ?>
+
+<script>
+document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        const tab = btn.dataset.tabTarget.replace('tab-', '');
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', tab);
+        window.location.href = url.toString();
+    });
+});
 </script>
 </body>
 </html>
