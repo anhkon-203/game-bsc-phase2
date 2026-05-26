@@ -496,6 +496,13 @@ function game_bsc_settings_page() {
                         </td>
                     </tr>
                     <tr>
+                        <th><label for="gotit_webhook_secret"><?php _e('Got It Webhook Secret Key', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
+                        <td>
+                            <input type="text" name="gotit_webhook_secret" id="gotit_webhook_secret" value="<?php echo esc_attr(get_option('game_bsc_gotit_webhook_secret', '')); ?>" style="width: 60%;" autocomplete="off">
+                            <p class="description">Secret key (32 ký tự) dùng để ký và xác thực webhook từ Got It.</p>
+                        </td>
+                    </tr>
+                    <tr>
                         <th><label for="trading_server"><?php _e('BSC Trading Server URL', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
                         <td>
                             <input type="text" name="trading_server" id="trading_server" value="<?php echo esc_attr(get_option('game_bsc_trading_server', '')); ?>" style="width: 60%;">
@@ -1246,6 +1253,7 @@ function game_bsc_handle_save_settings() {
     $old_api_base_url = get_option('game_bsc_api_base_url', '');
     $old_gotit_environment = get_option('game_bsc_gotit_environment', 'staging');
     $old_gotit_api_key = get_option('game_bsc_gotit_api_key', '');
+    $old_gotit_webhook_secret = get_option('game_bsc_gotit_webhook_secret', '');
     $old_max_drop_pieces = get_option('game_bsc_max_drop_pieces_per_day', 0);
     $old_price_drop_rate = get_option('game_bsc_piece_drop_rate', 0);
     $old_day_allowed_to_play_game_after_period_ends = get_option('game_bsc_day_allowed_to_play_game_after_period_ends', 0);
@@ -1473,6 +1481,12 @@ function game_bsc_handle_save_settings() {
     }
     if ($old_gotit_api_key !== $gotit_api_key) {
         game_bsc_log_settings_change('game_bsc_gotit_api_key', !empty($old_gotit_api_key) ? '[SET]' : '[EMPTY]', !empty($gotit_api_key) ? '[SET]' : '[EMPTY]', 'update');
+    }
+    
+    $gotit_webhook_secret = sanitize_text_field($_POST['gotit_webhook_secret'] ?? '');
+    update_option('game_bsc_gotit_webhook_secret', $gotit_webhook_secret);
+    if ($old_gotit_webhook_secret !== $gotit_webhook_secret) {
+        game_bsc_log_settings_change('game_bsc_gotit_webhook_secret', !empty($old_gotit_webhook_secret) ? '[SET]' : '[EMPTY]', !empty($gotit_webhook_secret) ? '[SET]' : '[EMPTY]', 'update');
     }
 
     // Trading Server URL

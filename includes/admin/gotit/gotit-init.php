@@ -13,3 +13,6 @@ require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/gotit/normalizers/gotit-store
 require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/gotit/parsers/gotit-issue-parser.php';
 // 3) AJAX/sync layer dùng lại client + normalizer đã nạp phía trên.
 require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/gotit/gotit-ajax.php';
+
+// 4) Webhook receiver – nhận thông báo trạng thái voucher từ Got It.
+require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/gotit/gotit-webhook.php';

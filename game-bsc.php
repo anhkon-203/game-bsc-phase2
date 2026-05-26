@@ -26,7 +26,7 @@ define('GAME_BSC_PLUGIN_FILE', __FILE__);
 define('WG_GAME_PLUGIN_TEXTDOMAIN', 'wg-game-bsc');
 define('WG_GAME_MAX_UPLOAD_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('WG_GAME_ITEMS_PER_PAGE', 50); // Số item trên 1 trang
-define('WG_GAME_PLUGIN_DB_VERSION', '28.0');
+define('WG_GAME_PLUGIN_DB_VERSION', '29.0');
 define('WG_GAME_DEFAULT_AVATAR_URL', site_url() . '/wp-content/plugins/game-bsc/assets/images/avatar.png');
 define('TIMEZONE', new DateTimeZone('Asia/Ho_Chi_Minh'));
 // Cookie name for plugin auth token (stored as opaque token in DB)

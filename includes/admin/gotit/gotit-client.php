@@ -12,6 +12,7 @@ if (!function_exists('game_bsc_gotit_source_config')) {
             'default_expiry_days' => 30,
             'private_key' => '',
             'public_key' => '',
+            'webhook_secret' => '',
             'excluded_product_ids' => '',
             'min_price_value' => 1000,
         ];

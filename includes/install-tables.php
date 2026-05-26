@@ -23,12 +23,12 @@ function game_bsc_install_tables() {
     // Bảng users
     $tables[$prefix . 'users'] = "CREATE TABLE {$prefix}users (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        provider VARCHAR(32) NOT NULL,                  -- nhà cung cấp SSO
-        external_user_id VARCHAR(128) NOT NULL,         -- id user bên SSO
+        provider VARCHAR(32) NOT NULL,
+        external_user_id VARCHAR(128) NOT NULL,
         name VARCHAR(255) NOT NULL,
         avatar_url VARCHAR(255) DEFAULT NULL,
-        afacctno VARCHAR(32) DEFAULT NULL,              -- số tiểu khoản thường cơ sở (BSC /trade/accounts)
-        status TINYINT(1) NOT NULL DEFAULT 1,           -- 1: active, 0: blocked
+        afacctno VARCHAR(32) DEFAULT NULL,
+        status TINYINT(1) NOT NULL DEFAULT 1,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_login_at DATETIME NULL,
         PRIMARY KEY (id),
@@ -39,12 +39,12 @@ function game_bsc_install_tables() {
     $tables[$prefix . 'user_login_logs'] = "CREATE TABLE {$prefix}user_login_logs (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_id INT UNSIGNED NULL,
-        provider VARCHAR(32) NOT NULL, -- Bên cung cấp SSO
-        checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- Thời gian đăng nhập
-        result ENUM('OK','FAIL') NOT NULL, -- Kết quả
+        provider VARCHAR(32) NOT NULL,
+        checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        result ENUM('OK','FAIL') NOT NULL,
         ip VARCHAR(45) NULL,
         user_agent TEXT NULL,
-        raw TEXT NULL, -- JSON kết quả từ API
+        raw TEXT NULL,
         PRIMARY KEY (id),
         KEY idx_user_checked (user_id, checked_at)
     ) ENGINE=InnoDB $charset_collate;";
@@ -68,12 +68,12 @@ function game_bsc_install_tables() {
 
     // Bảng lưu lịch sử tải lên câu hỏi bằng excel
     $tables[$prefix . 'question_upload_history'] = "CREATE TABLE {$prefix}question_upload_history (
-        id INT UNSIGNED NOT NULL AUTO_INCREMENT, -- id của bảng
-        file_name VARCHAR(255) NOT NULL, -- Tên file đã upload
-        file_url VARCHAR(255) NOT NULL, -- Link file đã upload
-        file_author INT UNSIGNED NOT NULL, -- ID người upload
-        upload_message TEXT, -- Thông điệp sau khi upload
-        uploaded_at DATETIME NOT NULL, -- Thời gian upload
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        file_name VARCHAR(255) NOT NULL,
+        file_url VARCHAR(255) NOT NULL,
+        file_author INT UNSIGNED NOT NULL,
+        upload_message TEXT,
+        uploaded_at DATETIME NOT NULL,
         PRIMARY KEY (id)
     ) ENGINE=InnoDB $charset_collate;";
 
@@ -111,8 +111,8 @@ function game_bsc_install_tables() {
         total_periods INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Số kỳ tung quà',
         max_redemptions_per_period INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Số bộ tối đa mỗi kỳ (0=vô hạn)',
         drop_weight SMALLINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Trọng số random hiện vật (cao hơn = rơi nhiều hơn)',
-        status TINYINT(1) NOT NULL DEFAULT 0, -- 1=Mở (hiển thị), 0=Đóng
-        closed TINYINT(1) NOT NULL DEFAULT 0,     -- 1 = đã hết suất (không rơi mảnh), 0 = còn suất
+        status TINYINT(1) NOT NULL DEFAULT 0,
+        closed TINYINT(1) NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id)
@@ -122,9 +122,9 @@ function game_bsc_install_tables() {
     $tables[$prefix . 'pieces'] = "CREATE TABLE {$prefix}pieces (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         artifact_id INT UNSIGNED NOT NULL,
-        piece_code VARCHAR(2) NOT NULL, -- P1..P4
-        baseline_weight TINYINT UNSIGNED NOT NULL DEFAULT 0, -- 0..100
-        piece_img VARCHAR(255) NOT NULL, -- url ảnh của mảnh
+        piece_code VARCHAR(2) NOT NULL,
+        baseline_weight TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        piece_img VARCHAR(255) NOT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -138,7 +138,7 @@ function game_bsc_install_tables() {
         user_id INT UNSIGNED NOT NULL,
         artifact_id INT UNSIGNED NOT NULL,
         piece_id INT UNSIGNED NOT NULL,
-        qty INT NOT NULL DEFAULT 1, -- Số lượng mảnh hiện có
+        qty INT NOT NULL DEFAULT 1,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY user_piece_uk (user_id, piece_id)
@@ -149,8 +149,8 @@ function game_bsc_install_tables() {
     $tables[$prefix . 'user_pieces_ledger'] = "CREATE TABLE {$prefix}user_pieces_ledger (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_piece_id INT UNSIGNED NOT NULL,
-        ref_type ENUM('REWARD', 'CHANGE') NOT NULL, -- Loại biến động: REWARD là được thưởng mảnh từ trả lời câu hỏi, CHANGE là đổi mảnh lấy hiện vật
-        delta INT NOT NULL, -- Số mảnh cộng/trừ
+        ref_type ENUM('REWARD', 'CHANGE') NOT NULL,
+        delta INT NOT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         KEY idx_user_piece_created (user_piece_id, created_at)
@@ -204,7 +204,7 @@ function game_bsc_install_tables() {
     // Bảng lưu số lượt chơi còn lại của user
     $tables[$prefix . 'play_credit_balances'] = "CREATE TABLE {$prefix}play_credit_balances (
         user_id INT UNSIGNED NOT NULL,
-        balance INT NOT NULL DEFAULT 0, -- số lượt còn lại
+        balance INT NOT NULL DEFAULT 0,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (user_id)
     ) ENGINE=InnoDB $charset_collate;";
@@ -213,9 +213,9 @@ function game_bsc_install_tables() {
     $tables[$prefix . 'play_credit_ledger'] = "CREATE TABLE {$prefix}play_credit_ledger (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_id INT UNSIGNED NOT NULL,
-        delta INT NOT NULL, -- Số lượt chơi cộng/trừ, VD: +5, -1
-        ref_type ENUM('MISSION','SESSION') NOT NULL, -- Lý do biến động: Nhiệm vụ/chơi game
-        ref_id INT UNSIGNED NULL, -- id bản ghi tham chiếu (vd. user_mission_logs.id hoặc  play_sessions.id)
+        delta INT NOT NULL,
+        ref_type ENUM('MISSION','SESSION') NOT NULL,
+        ref_id INT UNSIGNED NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         KEY idx_user_created (user_id, created_at)
@@ -229,17 +229,17 @@ function game_bsc_install_tables() {
     $tables[$prefix . 'users_play_sessions'] = "CREATE TABLE {$prefix}users_play_sessions (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_id INT UNSIGNED NOT NULL,
-        started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- Thời gian bắt đầu lượt chơi
-        finished_at DATETIME NULL, -- Thời gian kết thúc lượt chơi
-        questions_count TINYINT UNSIGNED NOT NULL, -- Số câu hỏi cho lượt chơi
-        allowed_retries TINYINT UNSIGNED NOT NULL, -- Tổng số lần được phép trả lời lại cho lượt chơi
-        retries_used TINYINT UNSIGNED NOT NULL DEFAULT 0, -- Số lần trả lời sai trong lượt chơi
-        correct_count TINYINT UNSIGNED NOT NULL DEFAULT 0, -- Tổng số câu trả lời đúng trong lượt này
-        credit_delta INT NOT NULL DEFAULT -1, -- Ghi nhận trừ 1 lượt khi mở phiên - để đối soát
+        started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        finished_at DATETIME NULL,
+        questions_count TINYINT UNSIGNED NOT NULL,
+        allowed_retries TINYINT UNSIGNED NOT NULL,
+        retries_used TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        correct_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        credit_delta INT NOT NULL DEFAULT -1,
         ip VARCHAR(45) NULL,
         user_agent TEXT NULL,
         current_stage INT UNSIGNED NULL,
-        current_stage_status TINYINT(1) NOT NULL DEFAULT 0, -- Trạng thái hoàn thành stage hiện tại: 1=hoàn thành, 0=chưa
+        current_stage_status TINYINT(1) NOT NULL DEFAULT 0,
         PRIMARY KEY (id),
         KEY idx_user_started (user_id, started_at)
     ) ENGINE=InnoDB $charset_collate;";
@@ -247,13 +247,13 @@ function game_bsc_install_tables() {
     // Bảng lưu chi tiết câu trả lời của user trong phiên chơi
     $tables[$prefix . 'users_session_answers'] = "CREATE TABLE {$prefix}users_session_answers (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        session_id INT UNSIGNED NOT NULL, -- ID phiên trả lời câu hỏi
-        question_post_id INT UNSIGNED NOT NULL, -- ID câu hỏi
-        order_index TINYINT UNSIGNED NOT NULL, -- Số thứ tự câu trong phiên: 1/2/3
-        attempt_no TINYINT UNSIGNED NOT NULL, -- Số lần thử để trả lời câu hỏi 1 hoặc 2
-        is_correct TINYINT(1) NOT NULL, -- Kết quả - 1: đúng/0: sai
-        user_answer char(1) NULL, -- Đáp án của người chơi
-        answered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- Thời điểm trả lời
+        session_id INT UNSIGNED NOT NULL,
+        question_post_id INT UNSIGNED NOT NULL,
+        order_index TINYINT UNSIGNED NOT NULL,
+        attempt_no TINYINT UNSIGNED NOT NULL,
+        is_correct TINYINT(1) NOT NULL,
+        user_answer char(1) NULL,
+        answered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY uniq_attempt (session_id, order_index)
     ) ENGINE=InnoDB $charset_collate;";
@@ -266,14 +266,14 @@ function game_bsc_install_tables() {
     $tables[$prefix . 'drop_logs'] = "CREATE TABLE {$prefix}drop_logs (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_id INT UNSIGNED NULL,
-        session_id INT UNSIGNED NOT NULL, -- id của phiên trả lời câu hỏi
-        order_index TINYINT UNSIGNED NOT NULL, -- Thứ tự của câu hỏi trong phiên 1/2/3
-        artifact_id INT UNSIGNED NULL, -- id hiện vật - Nếu rơi mảnh
-        piece_id INT UNSIGNED NULL, -- id mảnh - Nếu rơi mảnh
-        outcome ENUM('PIECE','POINT') NOT NULL, -- Loại thưởng: mảnh/điểm
-        points_awarded INT NOT NULL DEFAULT 0, -- số điểm tặng - Nếu rơi điểm
-        weight_sum INT NOT NULL DEFAULT 0, -- Tổng trọng số tại thời điểm rơi audit
-        chosen_weight INT NOT NULL DEFAULT 0, -- Trọng số của mảnh trúng audit
+        session_id INT UNSIGNED NOT NULL,
+        order_index TINYINT UNSIGNED NOT NULL,
+        artifact_id INT UNSIGNED NULL,
+        piece_id INT UNSIGNED NULL,
+        outcome ENUM('PIECE','POINT') NOT NULL,
+        points_awarded INT NOT NULL DEFAULT 0,
+        weight_sum INT NOT NULL DEFAULT 0,
+        chosen_weight INT NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         ip VARCHAR(45) NULL,
         user_agent TEXT NULL,
@@ -290,7 +290,7 @@ function game_bsc_install_tables() {
     // Bảng lưu số điểm hiện có của user
     $tables[$prefix . 'user_points_balances'] = "CREATE TABLE {$prefix}user_points_balances (
         user_id INT UNSIGNED NOT NULL,
-        balance INT NOT NULL DEFAULT 0, -- số điểm hiện còn
+        balance INT NOT NULL DEFAULT 0,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (user_id)
     ) ENGINE=InnoDB $charset_collate;";
@@ -299,9 +299,9 @@ function game_bsc_install_tables() {
     $tables[$prefix . 'user_points_ledger'] = "CREATE TABLE {$prefix}user_points_ledger (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_id INT UNSIGNED NOT NULL,
-        delta INT NOT NULL, -- Số điểm cộng/trừ, VD: +500, -1000
+        delta INT NOT NULL,
         ref_type ENUM('SESSION','BADGE','VOUCHER') NOT NULL,
-        ref_id INT UNSIGNED NULL, -- id tham chiếu, VD: session_id, user_voucher_redemptions.id,...
+        ref_id INT UNSIGNED NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         KEY idx_user_created (user_id, created_at)
@@ -315,8 +315,8 @@ function game_bsc_install_tables() {
     $tables[$prefix . 'user_badges'] = "CREATE TABLE {$prefix}user_badges (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_id INT UNSIGNED NOT NULL,
-        badge_post_id BIGINT UNSIGNED NOT NULL, -- WP post id của badge
-    	viewed TINYINT(1) NOT NULL DEFAULT 0,  -- 1 = đã xem, 0 = chưa xem
+        badge_post_id BIGINT UNSIGNED NOT NULL,
+    	viewed TINYINT(1) NOT NULL DEFAULT 0,
         awarded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY uniq_user_badge (user_id, badge_post_id)
@@ -326,7 +326,7 @@ function game_bsc_install_tables() {
     $tables[$prefix . 'user_voucher_redemptions'] = "CREATE TABLE {$prefix}user_voucher_redemptions (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_id INT UNSIGNED NOT NULL,
-        voucher_post_id BIGINT UNSIGNED NOT NULL, -- WP post id của voucher
+        voucher_post_id BIGINT UNSIGNED NOT NULL,
         transaction_ref_id VARCHAR(191) NULL,
         gotit_expiry_date DATETIME NULL,
         redeemed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -339,11 +339,11 @@ function game_bsc_install_tables() {
 	$tables[$prefix . 'settings_logs'] = "CREATE TABLE {$prefix}settings_logs (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_id INT UNSIGNED NOT NULL,
-        setting_key VARCHAR(255) NOT NULL, -- Tên cài đặt được chỉnh sửa (vd: game_bsc_stages, game_bsc_artifact_1)
-        old_value LONGTEXT NULL, -- Giá trị cũ (JSON hoặc serialized)
-        new_value LONGTEXT NULL, -- Giá trị mới (JSON hoặc serialized)
-        action VARCHAR(50) NOT NULL, -- 'update', 'create', 'delete'
-        changed_fields JSON NULL, -- Chi tiết các trường thay đổi
+        setting_key VARCHAR(255) NOT NULL,
+        old_value LONGTEXT NULL,
+        new_value LONGTEXT NULL,
+        action VARCHAR(50) NOT NULL,
+        changed_fields JSON NULL,
         ip_address VARCHAR(45) NULL,
         user_agent TEXT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -369,6 +369,8 @@ function game_bsc_install_tables() {
         gotit_serial VARCHAR(255) NULL,
         gotit_expiry_date DATETIME NULL,
         gotit_status TINYINT NOT NULL DEFAULT 0,
+        gotit_state_name VARCHAR(50) NULL,
+        gotit_status_changed_at DATETIME NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -376,6 +378,21 @@ function game_bsc_install_tables() {
         KEY idx_redemption_id (redemption_id),
         KEY idx_user_id (user_id),
         KEY idx_voucher_post_id (voucher_post_id),
+        KEY idx_created_at (created_at)
+    ) ENGINE=InnoDB $charset_collate;";
+
+    // Bảng log webhook Got It
+    $tables[$prefix . 'gotit_webhook_logs'] = "CREATE TABLE {$prefix}gotit_webhook_logs (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        request_body LONGTEXT NULL,
+        total_vouchers INT UNSIGNED NOT NULL DEFAULT 0,
+        processed_count INT UNSIGNED NOT NULL DEFAULT 0,
+        status VARCHAR(20) NOT NULL DEFAULT 'success',
+        error_detail TEXT NULL,
+        ip_address VARCHAR(45) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_status (status),
         KEY idx_created_at (created_at)
     ) ENGINE=InnoDB $charset_collate;";
 
@@ -402,6 +419,19 @@ function game_bsc_install_tables() {
             $exists = $wpdb->get_var("SHOW COLUMNS FROM {$gotit_table} LIKE '{$col}'");
             if ($exists === $col) {
                 $wpdb->query("ALTER TABLE {$gotit_table} DROP COLUMN {$col}");
+            }
+        }
+
+        // Ensure new webhook tracking columns exist in game_gotit_transactions
+        $new_columns = [
+            'gotit_state_name' => "VARCHAR(50) NULL AFTER gotit_status",
+            'gotit_status_changed_at' => "DATETIME NULL AFTER gotit_state_name",
+        ];
+
+        foreach ($new_columns as $col => $definition) {
+            $exists = $wpdb->get_var("SHOW COLUMNS FROM {$gotit_table} LIKE '{$col}'");
+            if (!$exists) {
+                $wpdb->query("ALTER TABLE {$gotit_table} ADD COLUMN {$col} {$definition}");
             }
         }
     }

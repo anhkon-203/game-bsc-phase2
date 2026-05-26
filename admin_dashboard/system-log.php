@@ -12,7 +12,7 @@ $page_slug = sanitize_text_field((string) ($_GET['page'] ?? 'dashboard-layout'))
 $sub_slug = sanitize_text_field((string) ($_GET['sub'] ?? 'system-log'));
 
 $log_tab = sanitize_key((string) ($_GET['log_tab'] ?? 'admin'));
-if (!in_array($log_tab, ['admin', 'voucher-excel'], true)) {
+if (!in_array($log_tab, ['admin', 'voucher-excel', 'gotit-webhook'], true)) {
     $log_tab = 'admin';
 }
 
@@ -55,6 +55,70 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
     $voucher_date_from,
     $voucher_date_to
 );
+
+$webhook_search = '';
+$webhook_status = 'all';
+$webhook_date_from = '';
+$webhook_date_to = '';
+$webhook_logs = [];
+$webhook_paged = 1;
+$webhook_total_items = 0;
+$webhook_total_pages = 0;
+
+if ($log_tab === 'gotit-webhook') {
+    global $wpdb;
+    $table_logs = $wpdb->prefix . 'game_gotit_webhook_logs';
+
+    $webhook_search = isset($_GET['webhook_search']) ? sanitize_text_field((string)$_GET['webhook_search']) : '';
+    $webhook_status = isset($_GET['webhook_status']) ? sanitize_key((string)$_GET['webhook_status']) : 'all';
+    $webhook_date_from = isset($_GET['webhook_date_from']) ? sanitize_text_field((string)$_GET['webhook_date_from']) : '';
+    $webhook_date_to = isset($_GET['webhook_date_to']) ? sanitize_text_field((string)$_GET['webhook_date_to']) : '';
+    
+    $webhook_paged = max(1, (int)($_GET['wh_paged'] ?? 1));
+    $webhook_per_page = 10;
+    $offset = ($webhook_paged - 1) * $webhook_per_page;
+
+    $where = ["1=1"];
+    $params = [];
+
+    if (!empty($webhook_search)) {
+        $where[] = "(request_body LIKE %s OR error_detail LIKE %s OR ip_address LIKE %s)";
+        $like_search = '%' . $wpdb->esc_like($webhook_search) . '%';
+        $params[] = $like_search;
+        $params[] = $like_search;
+        $params[] = $like_search;
+    }
+
+    if (!empty($webhook_status) && $webhook_status !== 'all') {
+        $where[] = "status = %s";
+        $params[] = $webhook_status;
+    }
+
+    if (!empty($webhook_date_from)) {
+        $where[] = "created_at >= %s";
+        $params[] = $webhook_date_from;
+    }
+
+    if (!empty($webhook_date_to)) {
+        $where[] = "created_at <= %s";
+        $params[] = $webhook_date_to;
+    }
+
+    $where_sql = implode(' AND ', $where);
+
+    $count_sql = "SELECT COUNT(*) FROM {$table_logs} WHERE {$where_sql}";
+    if (!empty($params)) {
+        $webhook_total_items = (int) $wpdb->get_var($wpdb->prepare($count_sql, $params));
+    } else {
+        $webhook_total_items = (int) $wpdb->get_var($count_sql);
+    }
+
+    $webhook_total_pages = ceil($webhook_total_items / $webhook_per_page);
+
+    $query_sql = "SELECT * FROM {$table_logs} WHERE {$where_sql} ORDER BY id DESC LIMIT %d OFFSET %d";
+    $query_params = array_merge($params, [$webhook_per_page, $offset]);
+    $webhook_logs = $wpdb->get_results($wpdb->prepare($query_sql, $query_params), ARRAY_A);
+}
 ?>
 <script src="<?php echo esc_url(GAME_BSC_PLUGIN_URL . 'admin_dashboard/assets/js/tailwind.config.js'); ?>"></script>
 
@@ -141,6 +205,71 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
             white-space: pre-wrap;
             word-break: break-word;
         }
+
+        /* Custom filter style to ensure perfectly uniform heights and premium aesthetic */
+        .log-filter-form {
+            display: flex !important;
+            gap: 12px !important;
+            align-items: flex-end !important;
+            flex-wrap: wrap !important;
+            margin-bottom: 4px !important;
+        }
+        .log-filter-group {
+            display: flex !important;
+            flex-direction: column !important;
+        }
+        .log-filter-label {
+            display: block !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            color: #667085 !important;
+            margin-bottom: 6px !important;
+        }
+        .log-filter-input {
+            display: inline-block !important;
+            height: 38px !important;
+            line-height: 38px !important;
+            padding: 0 12px !important;
+            border: 1px solid #D0D5DD !important;
+            border-radius: 8px !important;
+            background-color: #FFF !important;
+            color: #344054 !important;
+            font-size: 14px !important;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+            outline: none !important;
+            box-shadow: 0 1px 2px 0 rgba(16, 24, 40, 0.05) !important;
+            transition: all 0.2s ease !important;
+        }
+        .log-filter-input:focus {
+            border-color: #2D68FF !important;
+            box-shadow: 0 0 0 3px rgba(45, 104, 255, 0.1) !important;
+        }
+        select.log-filter-input {
+            height: 38px !important;
+            padding: 0 32px 0 12px !important;
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            -moz-appearance: none !important;
+            background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23667085' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E") !important;
+            background-position: right 10px center !important;
+            background-repeat: no-repeat !important;
+            background-size: 16px !important;
+        }
+        .log-filter-btn {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            height: 38px !important;
+            padding: 0 20px !important;
+            font-size: 14px !important;
+            font-weight: 500 !important;
+            border-radius: 8px !important;
+            box-sizing: border-box !important;
+            line-height: 1 !important;
+            margin: 0 !important;
+            transition: all 0.2s ease !important;
+        }
     </style>
 
     <section class="list-user">
@@ -155,6 +284,9 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                     <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'voucher-excel', 'vh_paged' => 1, 'vl_paged' => 1]))); ?>" class="log-tab <?php echo $log_tab === 'voucher-excel' ? 'active' : ''; ?>">
                         Lịch sử Excel Voucher Gotit
                     </a>
+                    <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab' => 'gotit-webhook', 'wh_paged' => 1]))); ?>" class="log-tab <?php echo $log_tab === 'gotit-webhook' ? 'active' : ''; ?>">
+                        Lịch sử Got It Webhook
+                    </a>
                 </div>
 
                 <?php if ($log_tab === 'admin'): ?>
@@ -164,26 +296,29 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                                 <?php echo sprintf(__('Tổng %d log', 'wg-game-bsc'), (int) $logs_data['total']); ?>
                             </p>
                             <div class="list-filter-in-table py-3 px-4 flex gap-4 items-center">
-                                <form method="get" action="" style="display: flex; gap: 10px; align-items: flex-end;">
+                                <form method="get" action="" class="log-filter-form">
                                     <input type="hidden" name="page" value="<?php echo esc_attr($page_slug); ?>">
                                     <input type="hidden" name="sub" value="<?php echo esc_attr($sub_slug); ?>">
                                     <input type="hidden" name="log_tab" value="admin">
 
-                                    <div>
-                                        <label class="block text-sm text-[#6A7A95] mb-1">Từ ngày</label>
-                                        <input type="datetime-local" name="admin_date_from" class="!py-[11px] !px-3" value="<?php echo esc_attr($admin_date_from); ?>">
+                                    <div class="log-filter-group">
+                                        <label class="log-filter-label">Từ ngày</label>
+                                        <input type="datetime-local" name="admin_date_from" class="log-filter-input" value="<?php echo esc_attr($admin_date_from); ?>">
                                     </div>
 
-                                    <div>
-                                        <label class="block text-sm text-[#6A7A95] mb-1">Đến ngày</label>
-                                        <input type="datetime-local" name="admin_date_to" class="!py-[11px] !px-3" value="<?php echo esc_attr($admin_date_to); ?>">
+                                    <div class="log-filter-group">
+                                        <label class="log-filter-label">Đến ngày</label>
+                                        <input type="datetime-local" name="admin_date_to" class="log-filter-input" value="<?php echo esc_attr($admin_date_to); ?>">
                                     </div>
 
-                                    <input type="text" name="search" class="!py-[11px] !px-3 min-w-[300px]"
-                                           placeholder="Tìm kiếm theo tên hoặc email"
-                                           value="<?php echo esc_attr($search_query); ?>">
+                                    <div class="log-filter-group">
+                                        <label class="log-filter-label">Từ khóa</label>
+                                        <input type="text" name="search" class="log-filter-input min-w-[300px]"
+                                               placeholder="Tìm kiếm theo tên hoặc email"
+                                               value="<?php echo esc_attr($search_query); ?>">
+                                    </div>
 
-                                    <button type="submit" class="button button-primary" style="height: 38px;">
+                                    <button type="submit" class="button button-primary log-filter-btn">
                                         Tìm kiếm
                                     </button>
                                 </form>
@@ -271,38 +406,38 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                             </table>
                         </div>
                     </div>
-                <?php else: ?>
+                <?php elseif ($log_tab === 'voucher-excel'): ?>
                     <div class="flex flex-col gap-4">
-                        <form method="get" action="" id="voucher-log-form" class="flex gap-3 items-end flex-wrap">
+                        <form method="get" action="" id="voucher-log-form" class="log-filter-form">
                             <input type="hidden" name="page" value="<?php echo esc_attr($page_slug); ?>">
                             <input type="hidden" name="sub" value="<?php echo esc_attr($sub_slug); ?>">
                             <input type="hidden" name="log_tab" value="voucher-excel">
 
-                            <div>
-                                <label class="block text-sm text-[#6A7A95] mb-1">Từ ngày</label>
-                                <input type="datetime-local" id="v_from" name="voucher_date_from" class="!py-[11px] !px-3" value="<?php echo esc_attr($voucher_date_from); ?>">
+                            <div class="log-filter-group">
+                                <label class="log-filter-label">Từ ngày</label>
+                                <input type="datetime-local" id="v_from" name="voucher_date_from" class="log-filter-input" value="<?php echo esc_attr($voucher_date_from); ?>">
                             </div>
 
-                            <div>
-                                <label class="block text-sm text-[#6A7A95] mb-1">Đến ngày</label>
-                                <input type="datetime-local" id="v_to" name="voucher_date_to" class="!py-[11px] !px-3" value="<?php echo esc_attr($voucher_date_to); ?>">
+                            <div class="log-filter-group">
+                                <label class="log-filter-label">Đến ngày</label>
+                                <input type="datetime-local" id="v_to" name="voucher_date_to" class="log-filter-input" value="<?php echo esc_attr($voucher_date_to); ?>">
                             </div>
 
-                            <div>
-                                <label class="block text-sm text-[#6A7A95] mb-1">Từ khóa</label>
-                                <input type="text" name="voucher_search" class="!py-[11px] !px-3 min-w-[300px]" placeholder="Tên file, tên hoặc email người thao tác" value="<?php echo esc_attr($voucher_search_query); ?>">
+                            <div class="log-filter-group">
+                                <label class="log-filter-label">Từ khóa</label>
+                                <input type="text" name="voucher_search" class="log-filter-input min-w-[300px]" placeholder="Tên file, tên hoặc email người thao tác" value="<?php echo esc_attr($voucher_search_query); ?>">
                             </div>
 
-                            <div>
-                                <label class="block text-sm text-[#6A7A95] mb-1">Chế độ import</label>
-                                <select name="voucher_mode" class="!py-[11px] !px-3 rounded-md border border-[#C9CCD2]">
+                            <div class="log-filter-group">
+                                <label class="log-filter-label">Chế độ import</label>
+                                <select name="voucher_mode" class="log-filter-input">
                                     <option value="all" <?php selected($voucher_mode, 'all'); ?>>Tất cả</option>
                                     <option value="dry-run" <?php selected($voucher_mode, 'dry-run'); ?>>Chạy thử</option>
                                     <option value="apply" <?php selected($voucher_mode, 'apply'); ?>>Áp dụng</option>
                                 </select>
                             </div>
 
-                            <button type="submit" class="button button-primary" style="height: 38px;">Lọc dữ liệu</button>
+                            <button type="submit" class="button button-primary log-filter-btn">Lọc dữ liệu</button>
                         </form>
 
                         <!-- Lịch sử Upload/Import -->
@@ -357,6 +492,172 @@ $voucher_related_logs = game_bsc_get_voucher_excel_related_logs(
                             </div>
                         </div>
                     </div>
+                <?php elseif ($log_tab === 'gotit-webhook'): ?>
+                    <div class="flex flex-col gap-4">
+                        <form method="get" action="" id="webhook-log-form" class="log-filter-form">
+                            <input type="hidden" name="page" value="<?php echo esc_attr($page_slug); ?>">
+                            <input type="hidden" name="sub" value="<?php echo esc_attr($sub_slug); ?>">
+                            <input type="hidden" name="log_tab" value="gotit-webhook">
+
+                            <div class="log-filter-group">
+                                <label class="log-filter-label">Từ ngày</label>
+                                <input type="datetime-local" id="wh_from" name="webhook_date_from" class="log-filter-input" value="<?php echo esc_attr($webhook_date_from); ?>">
+                            </div>
+
+                            <div class="log-filter-group">
+                                <label class="log-filter-label">Đến ngày</label>
+                                <input type="datetime-local" id="wh_to" name="webhook_date_to" class="log-filter-input" value="<?php echo esc_attr($webhook_date_to); ?>">
+                            </div>
+
+                            <div class="log-filter-group">
+                                <label class="log-filter-label">Từ khóa</label>
+                                <input type="text" name="webhook_search" class="log-filter-input min-w-[300px]" placeholder="Body, IP hoặc nội dung lỗi" value="<?php echo esc_attr($webhook_search); ?>">
+                            </div>
+
+                            <div class="log-filter-group">
+                                <label class="log-filter-label">Trạng thái</label>
+                                <select name="webhook_status" class="log-filter-input">
+                                    <option value="all" <?php selected($webhook_status, 'all'); ?>>Tất cả</option>
+                                    <option value="success" <?php selected($webhook_status, 'success'); ?>>Thành công</option>
+                                    <option value="partial" <?php selected($webhook_status, 'partial'); ?>>Thành công 1 phần</option>
+                                    <option value="auth_failed" <?php selected($webhook_status, 'auth_failed'); ?>>Sai chữ ký (401)</option>
+                                    <option value="invalid_body" <?php selected($webhook_status, 'invalid_body'); ?>>Sai body (400)</option>
+                                    <option value="failed" <?php selected($webhook_status, 'failed'); ?>>Thất bại</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" class="button button-primary log-filter-btn">Lọc dữ liệu</button>
+                        </form>
+
+                        <div class="flex flex-col wrapper-table">
+                            <div class="flex justify-between items-center bg-white pl-4 py-3">
+                                <p class="text-[#4D7CFF] text-sm font-medium cus-bg">
+                                    Tổng số: <?php echo (int) $webhook_total_items; ?> log webhook
+                                </p>
+                            </div>
+
+                            <div class="overflow-x-auto table-general">
+                                <table class="min-w-full border-collapse divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left">ID</th>
+                                        <th class="px-6 py-3 text-left">Trạng thái</th>
+                                        <th class="px-6 py-3 text-left">Số lượng</th>
+                                        <th class="px-6 py-3 text-left">Chi tiết lỗi / Cảnh báo</th>
+                                        <th class="px-6 py-3 text-left">Payload Request</th>
+                                        <th class="px-6 py-3 text-left">IP / Thời gian</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100">
+                                    <?php if (!empty($webhook_logs)): ?>
+                                        <?php 
+                                        if (!function_exists('game_bsc_get_webhook_status_badge_style')) {
+                                            function game_bsc_get_webhook_status_badge_style($status) {
+                                                switch ($status) {
+                                                    case 'success':
+                                                        return 'background: #d4edda; color: #155724; border: 1px solid #c3e6cb;';
+                                                    case 'partial':
+                                                        return 'background: #fff3cd; color: #856404; border: 1px solid #ffeeba;';
+                                                    case 'auth_failed':
+                                                    case 'invalid_body':
+                                                    case 'failed':
+                                                        return 'background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;';
+                                                    default:
+                                                        return 'background: #e2e3e5; color: #383d41; border: 1px solid #d6d8db;';
+                                                }
+                                            }
+                                        }
+                                        if (!function_exists('game_bsc_get_webhook_status_label')) {
+                                            function game_bsc_get_webhook_status_label($status) {
+                                                switch ($status) {
+                                                    case 'success':
+                                                        return 'Thành công';
+                                                    case 'partial':
+                                                        return 'Một phần';
+                                                    case 'auth_failed':
+                                                        return 'Sai chữ ký (401)';
+                                                    case 'invalid_body':
+                                                        return 'Sai body (400)';
+                                                    case 'failed':
+                                                        return 'Thất bại';
+                                                    default:
+                                                        return $status;
+                                                }
+                                            }
+                                        }
+                                        ?>
+                                        <?php foreach ($webhook_logs as $log): ?>
+                                            <tr class="hover:bg-gray-50 transition td-content">
+                                                <td class="px-6 py-3">WH-<?php echo esc_html(str_pad((string) $log['id'], 6, '0', STR_PAD_LEFT)); ?></td>
+                                                <td class="px-6 py-3">
+                                                    <span class="badge-action" style="<?php echo esc_attr(game_bsc_get_webhook_status_badge_style($log['status'])); ?>">
+                                                        <?php echo esc_html(game_bsc_get_webhook_status_label($log['status'])); ?>
+                                                    </span>
+                                                </td>
+                                                <td class="px-6 py-3">
+                                                    <div class="text-sm">Tổng: <span class="font-bold"><?php echo (int) $log['total_vouchers']; ?></span></div>
+                                                    <small class="text-gray-500">Khớp: <span class="font-bold"><?php echo (int) $log['processed_count']; ?></span></small>
+                                                </td>
+                                                <td class="px-6 py-3 max-w-[300px]">
+                                                    <?php if (!empty($log['error_detail'])): ?>
+                                                        <div class="text-xs text-red-600 font-medium whitespace-normal break-words"><?php echo esc_html($log['error_detail']); ?></div>
+                                                    <?php else: ?>
+                                                        <span class="text-xs text-gray-400">---</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td class="px-6 py-3 max-w-[400px]">
+                                                    <details style="cursor: pointer;">
+                                                        <summary class="text-xs text-blue-600 hover:underline select-none">📋 Xem JSON Payload</summary>
+                                                        <div class="mt-2 bg-gray-50 p-3 rounded border overflow-x-auto">
+                                                            <pre class="mono"><?php 
+                                                                $decoded = json_decode($log['request_body'], true);
+                                                                if ($decoded) {
+                                                                    echo esc_html(json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                                                                } else {
+                                                                    echo esc_html($log['request_body']);
+                                                                }
+                                                            ?></pre>
+                                                        </div>
+                                                    </details>
+                                                </td>
+                                                <td class="px-6 py-3">
+                                                    <div class="text-sm"><?php echo esc_html($log['created_at']); ?></div>
+                                                    <small class="text-gray-500"><?php echo esc_html($log['ip_address'] ?: 'CLI / Môi trường nội bộ'); ?></small>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <tr>
+                                            <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                                                <em>Không có dữ liệu log webhook.</em>
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="px-6 py-4 border-t border-gray-100 flex justify-between items-center">
+                                <p class="text-sm text-[#6A7A95]">
+                                    Trang <span class="font-medium text-[#344054]"><?php echo (int) $webhook_paged; ?></span> 
+                                    trên <span class="font-medium text-[#344054]"><?php echo (int) $webhook_total_pages; ?></span>
+                                </p>
+                                <div class="flex gap-4">
+                                    <?php if ($webhook_paged > 1): ?>
+                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab'=>'gotit-webhook','webhook_search'=>$webhook_search,'webhook_status'=>$webhook_status,'webhook_date_from'=>$webhook_date_from,'webhook_date_to'=>$webhook_date_to,'wh_paged'=>$webhook_paged - 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-[#344054] hover:bg-gray-50">Trang trước</a>
+                                    <?php else: ?>
+                                        <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-[#344054] opacity-50">Trang trước</button>
+                                    <?php endif; ?>
+
+                                    <?php if ($webhook_paged < $webhook_total_pages): ?>
+                                        <a href="<?php echo esc_url(add_query_arg(array_merge($base_params, ['log_tab'=>'gotit-webhook','webhook_search'=>$webhook_search,'webhook_status'=>$webhook_status,'webhook_date_from'=>$webhook_date_from,'webhook_date_to'=>$webhook_date_to,'wh_paged'=>$webhook_paged + 1]))); ?>" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-[#344054] hover:bg-gray-50">Trang sau</a>
+                                    <?php else: ?>
+                                        <button disabled class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-[#344054] opacity-50">Trang sau</button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 <?php endif; ?>
             </div>
         </div>
@@ -373,6 +674,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var pairs = [
                 ['admin_date_from',   'admin_date_to'],
                 ['voucher_date_from', 'voucher_date_to'],
+                ['webhook_date_from', 'webhook_date_to'],
                 ['date_from',         'date_to'],
             ];
             for (var i = 0; i < pairs.length; i++) {
