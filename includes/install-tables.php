@@ -329,6 +329,7 @@ function game_bsc_install_tables() {
         voucher_post_id BIGINT UNSIGNED NOT NULL,
         transaction_ref_id VARCHAR(191) NULL,
         gotit_expiry_date DATETIME NULL,
+        prinpaid INT NOT NULL DEFAULT 0,
         redeemed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         KEY idx_transaction_ref_id (transaction_ref_id),
@@ -469,6 +470,27 @@ function game_bsc_ensure_users_afacctno_column() {
     $wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `afacctno` VARCHAR(32) DEFAULT NULL AFTER `avatar_url`");
 }
 
+/**
+ * Ensure legacy installs have prinpaid column in game_user_voucher_redemptions.
+ */
+function game_bsc_ensure_voucher_redemptions_prinpaid_column() {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'game_user_voucher_redemptions';
+
+    // If table does not exist yet, let install routine handle it.
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) !== $table_name) {
+        return;
+    }
+
+    $column_exists = $wpdb->get_var("SHOW COLUMNS FROM `{$table_name}` LIKE 'prinpaid'");
+    if ($column_exists) {
+        return;
+    }
+
+    $wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `prinpaid` INT NOT NULL DEFAULT 0 AFTER `gotit_expiry_date`");
+}
+
 // Phát hành bản mới
 function game_bsc_update_db_check() {
     if (get_option('wg_game_db_version') != WG_GAME_PLUGIN_DB_VERSION) {
@@ -476,6 +498,7 @@ function game_bsc_update_db_check() {
     }
 
     game_bsc_ensure_users_afacctno_column();
+    game_bsc_ensure_voucher_redemptions_prinpaid_column();
 }
 add_action('admin_init', 'game_bsc_update_db_check');
 // Uninstall hook

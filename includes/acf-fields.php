@@ -153,25 +153,7 @@ function game_bsc_register_acf_fields() {
 				'label' => 'Giá trị voucher',
 				'name'  => 'voucheramt',
 				'type'  => 'number',
-				'wrapper' => array('width' => 33),
-				'step' => '0.01',
-				'default_value' => 0,
-				'conditional_logic' => array(
-					array(
-						array(
-							'field'    => 'field_voucher_type',
-							'operator' => '==',
-							'value'    => 'BSC',
-						),
-					),
-				),
-			),
-			array(
-				'key'   => 'field_prinpaid',
-				'label' => 'Số tiền đã sử dụng',
-				'name'  => 'prinpaid',
-				'type'  => 'number',
-				'wrapper' => array('width' => 33),
+				'wrapper' => array('width' => 50),
 				'step' => '0.01',
 				'default_value' => 0,
 				'conditional_logic' => array(
@@ -603,14 +585,6 @@ function game_bsc_register_acf_fields() {
 	add_filter('acf/prepare_field/name=voucheramt', function ($field) {
 		if (is_admin()) {
 			unset($field['readonly']);
-			$field['instructions'] = '';
-		}
-		return $field;
-	});
-
-	add_filter('acf/prepare_field/name=prinpaid', function ($field) {
-		if (is_admin()) {
-			$field['readonly'] = 1;
 			$field['instructions'] = '';
 		}
 		return $field;

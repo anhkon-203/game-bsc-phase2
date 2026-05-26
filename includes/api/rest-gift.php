@@ -381,14 +381,10 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 		return wg_json_response(401, [], __('Thiếu access token để gọi BSC Trading API.', WG_GAME_PLUGIN_TEXTDOMAIN), 401);
 	}
 
-	// B5: Resolve base URL Trading server theo thứ tự ưu tiên:
-	// option plugin -> ACF option -> fallback mặc định.
+	// B5: Resolve base URL Trading server - Lấy từ option game_bsc_trading_server
 	$trading_server = (string) (get_option('game_bsc_trading_server') ?: '');
-	if ($trading_server === '' && function_exists('get_field')) {
-		$trading_server = (string) (get_field('cdapi_ip_address_tradingserver', 'option') ?: '');
-	}
 	if ($trading_server === '') {
-		$trading_server = 'https://tradeapi-krxtduat.bsc.com.vn';
+		return wg_json_response(500, [], __('Cấu hình game_bsc_trading_server URL trống.', WG_GAME_PLUGIN_TEXTDOMAIN), 500);
 	}
 	$trading_server = rtrim($trading_server, '/');
 
@@ -433,90 +429,111 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 
 	// Danh sách item từ API gốc.
 	$registered_items = isset($body['d']) && is_array($body['d']) ? $body['d'] : [];
-	$api_codes = [];
-	// external_user_id dùng để lọc dữ liệu đúng user hiện tại (custodycd).
 	$external_user_id = sanitize_text_field((string) ($user['external_user_id'] ?? ''));
 
-	// Thu thập tập voucher code từ API để query WordPress theo meta voucher_code.
-	foreach ($registered_items as $item) {
-		if (!is_array($item)) {
+	// B7: Lấy danh sách voucher đã đổi trong DB của user này để khớp dữ liệu
+	$user_redemptions = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT uvr.id, uvr.voucher_post_id, pm.meta_value as voucher_code, uvr.prinpaid, uvr.gotit_expiry_date
+			 FROM {$prefix}user_voucher_redemptions uvr
+			 INNER JOIN {$wpdb->postmeta} pm ON uvr.voucher_post_id = pm.post_id AND pm.meta_key = 'voucher_code'
+			 WHERE uvr.user_id = %d
+			 ORDER BY uvr.redeemed_at ASC, uvr.id ASC",
+			$user_id
+		),
+		ARRAY_A
+	);
+
+	// Helper to normalize voucher codes for comparison (e.g. VC06 <=> 0006 <=> 6)
+	$normalize_voucher_code = static function ($code) {
+		$code = strtoupper(trim((string)$code));
+		if (strpos($code, 'VC') === 0) {
+			$code = substr($code, 2);
+		}
+		if (ctype_digit($code)) {
+			$code = (string)intval($code);
+		}
+		return $code;
+	};
+
+	// Group DB redemptions by voucher_code (normalized)
+	$db_redemptions_by_code = [];
+	foreach ($user_redemptions as $redemption) {
+		$code = $normalize_voucher_code($redemption['voucher_code']);
+		if ($code === '') {
 			continue;
 		}
-
-		$voucher_code = trim((string) ($item['voucherid'] ?? ''));
-		if ($voucher_code === '') {
-			continue;
+		if (!isset($db_redemptions_by_code[$code])) {
+			$db_redemptions_by_code[$code] = [];
 		}
-
-		$api_codes[$voucher_code] = true;
+		$db_redemptions_by_code[$code][] = $redemption;
 	}
 
-	// Build map voucher_code => [post_id...] để xử lý cập nhật nhanh theo từng item API.
-	$voucher_map = [];
-	if (!empty($api_codes)) {
-		$voucher_posts = get_posts([
-			'post_type'      => 'game_vouchers',
-			'post_status'    => ['publish', 'draft', 'pending', 'private'],
-			'posts_per_page' => -1,
-			'fields'         => 'ids',
-			'meta_query'     => [
-				[
-					'key'     => 'voucher_code',
-					'value'   => array_keys($api_codes),
-					'compare' => 'IN',
-				],
-			],
-		]);
-
-		foreach ($voucher_posts as $voucher_post_id) {
-			$voucher_code = trim((string) get_post_meta((int) $voucher_post_id, 'voucher_code', true));
-			if ($voucher_code === '') {
-				continue;
-			}
-
-			if (!isset($voucher_map[$voucher_code])) {
-				$voucher_map[$voucher_code] = [];
-			}
-			$voucher_map[$voucher_code][] = (int) $voucher_post_id;
-		}
-	}
-
-	// Duyệt từng item API:
-	// - map voucherid -> voucher_code
-	// - lọc theo custodycd nếu có
-	// - normalize các field số
-	// - update meta tương ứng nếu dữ liệu thay đổi
+	// Group API items by voucherid (normalized)
+	$api_items_by_code = [];
 	foreach ($registered_items as $item) {
 		if (!is_array($item)) {
-			continue;
-		}
-
-		$voucher_code = trim((string) ($item['voucherid'] ?? ''));
-		if ($voucher_code === '') {
 			continue;
 		}
 
 		$item_custodycd = sanitize_text_field((string) ($item['custodycd'] ?? ''));
-		if ($external_user_id !== '' && $item_custodycd !== '' && $item_custodycd !== $external_user_id) {
-			// Item không thuộc user hiện tại thì bỏ qua để tránh ghi đè sai dữ liệu.
+		if ($external_user_id !== '' && $item_custodycd !== '' && strcasecmp($item_custodycd, $external_user_id) !== 0) {
 			continue;
 		}
 
-		$prinpaid = $normalize_registered_voucher_amount($item['prinpaid'] ?? 0);
-
-		$post_ids = $voucher_map[$voucher_code] ?? [];
-
-		if (empty($post_ids)) {
-			// Không có voucher nội bộ tương ứng voucherid từ API.
+		$voucher_code = $normalize_voucher_code($item['voucherid'] ?? '');
+		if ($voucher_code === '') {
 			continue;
 		}
 
-		// Một voucher_code có thể map nhiều post_id, cập nhật tất cả bản ghi match.
-		foreach ($post_ids as $post_id) {
-			$current_prinpaid = get_post_meta($post_id, 'prinpaid', true);
+		if (!isset($api_items_by_code[$voucher_code])) {
+			$api_items_by_code[$voucher_code] = [];
+		}
+		$api_items_by_code[$voucher_code][] = $item;
+	}
 
-			if ($registered_voucher_value_changed($current_prinpaid, $prinpaid)) {
-				update_post_meta($post_id, 'prinpaid', $prinpaid);
+	// Đồng bộ prinpaid theo từng voucher_code tuần tự
+	foreach ($api_items_by_code as $voucher_code => $api_items) {
+		$db_records = $db_redemptions_by_code[$voucher_code] ?? [];
+		if (empty($db_records)) {
+			continue;
+		}
+
+		// Khớp tuần tự tối đa theo số lượng bản ghi nhỏ hơn
+		$count = min(count($db_records), count($api_items));
+		for ($i = 0; $i < $count; $i++) {
+			$db_row = $db_records[$i];
+			$api_row = $api_items[$i];
+
+			$new_prinpaid = $normalize_registered_voucher_amount($api_row['prinpaid'] ?? 0);
+			$current_prinpaid = (float)$db_row['prinpaid'];
+
+			// Parse expdate from API to MySQL datetime (Y-m-d H:i:s)
+			$new_expiry = null;
+			$expdate_raw = trim((string)($api_row['expdate'] ?? ''));
+			if ($expdate_raw !== '') {
+				$date_parts = explode('/', $expdate_raw);
+				if (count($date_parts) === 3) {
+					$new_expiry = sprintf('%04d-%02d-%02d 23:59:59', $date_parts[2], $date_parts[1], $date_parts[0]);
+				}
+			}
+
+			$update_data = [];
+			if ($registered_voucher_value_changed($current_prinpaid, $new_prinpaid)) {
+				$update_data['prinpaid'] = $new_prinpaid;
+			}
+
+			$current_expiry = trim((string)($db_row['gotit_expiry_date'] ?? ''));
+			if ($new_expiry !== null && $current_expiry !== $new_expiry) {
+				$update_data['gotit_expiry_date'] = $new_expiry;
+			}
+
+			if (!empty($update_data)) {
+				$wpdb->update(
+					"{$prefix}user_voucher_redemptions",
+					$update_data,
+					['id' => (int)$db_row['id']]
+				);
 			}
 		}
 	}
@@ -2854,43 +2871,27 @@ function game_get_my_redemptions(WP_REST_Request $request)
  * ✅ THÊM SỐ LƯỢNG VOUCHER CÙNG LOẠI
  * ✅ SỬ DỤNG get_field() ĐỂ LẤY ACF FIELDS
  *
- * Mặc định chỉ lấy voucher nội bộ, loại trừ voucher GOT IT (THIRD_PARTY).
- *
  * @param int  $user_id
- * @param bool $exclude_gotit
  * @return array
  */
-function game_get_user_voucher_redemptions($user_id, $exclude_gotit = true)
+function game_get_user_voucher_redemptions($user_id)
 {
 	global $wpdb;
 	$prefix = $wpdb->prefix . 'game_';
-	$gotit_type_filter_sql = '';
-
-	if ($exclude_gotit) {
-		$gotit_type_filter_sql = "
-			AND EXISTS (
-				SELECT 1
-				FROM {$wpdb->postmeta} pm
-				WHERE pm.post_id = uvr.voucher_post_id
-				  AND pm.meta_key = 'voucher_type'
-				  AND UPPER(TRIM(pm.meta_value)) NOT IN ('THIRD_PARTY', 'THIRD-PARTY')
-			)";
-	}
 	
-	// Lấy danh sách redemptions - GROUP BY voucher_post_id để đếm số lượng
+	// Lấy danh sách redemptions riêng biệt từng dòng để có prinpaid độc lập cho từng user
 	$redemptions = $wpdb->get_results(
 		$wpdb->prepare(
 			"SELECT
-				MIN(uvr.id) as redemption_id,
+				uvr.id as redemption_id,
 				uvr.voucher_post_id as voucher_id,
-				MAX(uvr.redeemed_at) as redeemed_at,
-				COUNT(*) as quantity,
-				p.post_title as voucher_name
+				uvr.redeemed_at as redeemed_at,
+				1 as quantity,
+				p.post_title as voucher_name,
+				uvr.prinpaid
 			FROM {$prefix}user_voucher_redemptions uvr
 			INNER JOIN {$wpdb->posts} p ON uvr.voucher_post_id = p.ID
 			WHERE uvr.user_id = %d
-			{$gotit_type_filter_sql}
-			GROUP BY uvr.voucher_post_id
 			ORDER BY redeemed_at DESC",
 			$user_id
 		),
@@ -2914,7 +2915,7 @@ function game_get_user_voucher_redemptions($user_id, $exclude_gotit = true)
 		$voucher_type = sanitize_text_field(get_field('voucher_type', $voucher_id) ?? 'BSC');
 		$points_cost = (int)(get_field('points_cost', $voucher_id) ?? 0);
 		$voucheramt = (float) (get_post_meta($voucher_id, 'voucheramt', true) ?: 0);
-		$prinpaid = (float) (get_post_meta($voucher_id, 'prinpaid', true) ?: 0);
+		$prinpaid = isset($redemption['prinpaid']) ? (float)$redemption['prinpaid'] : 0.0;
 		// Lấy ảnh banner đổi quà (ưu tiên featured image/ảnh nổi bật trước)
 		$redeemed_banner_image_url = '';
 		$redeemed_banner_thumb_id = get_post_thumbnail_id($voucher_id);
@@ -2951,18 +2952,10 @@ function game_get_user_voucher_redemptions($user_id, $exclude_gotit = true)
 		if (!is_array($validity_data)) {
 			$validity_data = [];
 		}
-
-		$voucher_type_raw = strtoupper(trim((string) $voucher_type));
-		$is_third_party_voucher = in_array($voucher_type_raw, ['THIRD_PARTY', 'THIRD-PARTY'], true);
 		
 		$valid_from = $validity_data['valid_from'] ?? '';
 		$valid_to = $validity_data['valid_to'] ?? '';
 		$is_valid = true;
-
-		if ($is_third_party_voucher) {
-			$valid_from = '';
-			$valid_to = '';
-		}
 		
 		if (!empty($valid_to)) {
 			$today = game_now();

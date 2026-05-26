@@ -26,7 +26,7 @@ define('GAME_BSC_PLUGIN_FILE', __FILE__);
 define('WG_GAME_PLUGIN_TEXTDOMAIN', 'wg-game-bsc');
 define('WG_GAME_MAX_UPLOAD_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('WG_GAME_ITEMS_PER_PAGE', 50); // Số item trên 1 trang
-define('WG_GAME_PLUGIN_DB_VERSION', '29.0');
+define('WG_GAME_PLUGIN_DB_VERSION', '30.0');
 define('WG_GAME_DEFAULT_AVATAR_URL', site_url() . '/wp-content/plugins/game-bsc/assets/images/avatar.png');
 define('TIMEZONE', new DateTimeZone('Asia/Ho_Chi_Minh'));
 // Cookie name for plugin auth token (stored as opaque token in DB)
@@ -818,13 +818,7 @@ function bsc_game_sync_afacctno(int $user_id, string $access_token): void
   global $wpdb;
 
   // ----- Xác định Trading Server URL -----
-  $trading_server = '';
-  // Ưu tiên: lấy từ option settings
-  $trading_server = (string)(get_option('game_bsc_trading_server') ?? '');
-  // Fallback: lấy từ ACF field (cũ)
-  if (empty($trading_server) && function_exists('get_field')) {
-    $trading_server = (string)(get_field('cdapi_ip_address_tradingserver', 'option') ?? '');
-  }
+  $trading_server = (string)(get_option('game_bsc_trading_server') ?: '');
 
   if (empty($trading_server)) {
     error_log('[BSC SSO] bsc_game_sync_afacctno: missing trading server URL');

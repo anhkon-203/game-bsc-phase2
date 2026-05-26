@@ -229,7 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $base_urls = [
             'apiurl' => (string)get_field('cdapi_ip_address_apiurl', 'option'),
             'apinoibo' => (string)get_option('game_bsc_api_base_url'),
-            'tradingserver' => (string)get_field('cdapi_ip_address_tradingserver', 'option'),
+            'tradingserver' => (string)get_option('game_bsc_trading_server'),
             'full' => '',
         ];
 
@@ -1019,7 +1019,7 @@ $customer_internal_api = (strpos($apinoibo_url, '/api') !== false)
                         <select id="bsc_base" name="bsc_base" style="width:100%;">
                             <option value="apinoibo" <?php selected($bsc_external_form['base'], 'apinoibo'); ?>>cdapi_ip_address_apinoibo</option>
                             <option value="apiurl" <?php selected($bsc_external_form['base'], 'apiurl'); ?>>cdapi_ip_address_apiurl</option>
-                            <option value="tradingserver" <?php selected($bsc_external_form['base'], 'tradingserver'); ?>>cdapi_ip_address_tradingserver</option>
+                            <option value="tradingserver" <?php selected($bsc_external_form['base'], 'tradingserver'); ?>>game_bsc_trading_server</option>
                             <option value="full" <?php selected($bsc_external_form['base'], 'full'); ?>>Full URL trong endpoint</option>
                         </select>
                     </div>
