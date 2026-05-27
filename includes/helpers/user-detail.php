@@ -408,7 +408,7 @@ function game_bsc_get_user_play_credit_ledger($user_id, $per_page = 10, $page = 
 
 		$status = sanitize_text_field($status);
 
-		$where_extra = '';
+		$where_extra = " AND NOT (l.ref_type = 'MISSION' AND l.delta = 0) ";
 		if ($date_from_sql) {
 			$where_extra .= $wpdb->prepare(' AND DATE(l.created_at) >= %s ', $date_from_sql);
 		}

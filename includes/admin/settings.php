@@ -613,6 +613,22 @@ function game_bsc_settings_page() {
                             <p class="description"><?php _e('Chọn icon cho banner.', WG_GAME_PLUGIN_TEXTDOMAIN); ?></p>
                         </td>
                     </tr>
+                    <tr>
+                        <th><label><?php _e('Icon mobile', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
+                        <td>
+                            <?php
+                            $banner_icon_mobile_id = get_option('game_bsc_banner_icon_mobile', '');
+                            $banner_icon_mobile_url = $banner_icon_mobile_id ? wp_get_attachment_image_url($banner_icon_mobile_id, 'medium') : '';
+                            ?>
+                            <div class="image-preview-wrapper" style="margin-bottom: 10px;">
+                                <img id="banner_icon_mobile_preview" src="<?php echo esc_url($banner_icon_mobile_url); ?>" style="max-width:150px; max-height:150px; display:<?php echo $banner_icon_mobile_url ? 'block' : 'none'; ?>;" />
+                            </div>
+                            <input type="hidden" name="game_bsc_banner_icon_mobile" id="banner_icon_mobile_id" value="<?php echo esc_attr($banner_icon_mobile_id); ?>">
+                            <button type="button" class="button" id="upload_banner_icon_mobile_button"><?php _e('Chọn ảnh', WG_GAME_PLUGIN_TEXTDOMAIN); ?></button>
+                            <button type="button" class="button" id="remove_banner_icon_mobile_button" style="display:<?php echo $banner_icon_mobile_url ? 'inline-block' : 'none'; ?>;"><?php _e('Xóa ảnh', WG_GAME_PLUGIN_TEXTDOMAIN); ?></button>
+                            <p class="description"><?php _e('Chọn icon cho banner trên phiên bản di động.', WG_GAME_PLUGIN_TEXTDOMAIN); ?></p>
+                        </td>
+                    </tr>
                 </table>
             </div>
             <!-- SUBMIT BUTTON -->
@@ -881,6 +897,38 @@ function game_bsc_settings_page() {
                 e.preventDefault();
                 $('#banner_icon_id').val('');
                 $('#banner_icon_preview').attr('src', '').hide();
+                $(this).hide();
+            });
+
+            // ========== MEDIA UPLOADER FOR BANNER ICON MOBILE ==========
+            var banner_icon_mobile_frame;
+            $('#upload_banner_icon_mobile_button').on('click', function(e) {
+                e.preventDefault();
+                if (banner_icon_mobile_frame) {
+                    banner_icon_mobile_frame.open();
+                    return;
+                }
+                banner_icon_mobile_frame = wp.media({
+                    title: 'Chọn icon banner mobile',
+                    button: { text: 'Sử dụng ảnh này' },
+                    multiple: false
+                });
+                banner_icon_mobile_frame.on('select', function() {
+                    var attachment = banner_icon_mobile_frame.state().get('selection').first().toJSON();
+                    var imageUrl = getAttachmentUrl(attachment);
+                    $('#banner_icon_mobile_id').val(attachment.id);
+                    if (imageUrl) {
+                        $('#banner_icon_mobile_preview').attr('src', imageUrl).css('display', 'block').show();
+                    }
+                    $('#remove_banner_icon_mobile_button').css('display', 'inline-block').show();
+                });
+                banner_icon_mobile_frame.open();
+            });
+
+            $('#remove_banner_icon_mobile_button').on('click', function(e) {
+                e.preventDefault();
+                $('#banner_icon_mobile_id').val('');
+                $('#banner_icon_mobile_preview').attr('src', '').hide();
                 $(this).hide();
             });
         });
@@ -1584,6 +1632,20 @@ function game_bsc_handle_save_settings() {
             'game_bsc_banner_icon',
             $old_banner_icon,
             $banner_icon,
+            'update'
+        );
+    }
+
+    // Banner Icon Mobile
+    $old_banner_icon_mobile = get_option('game_bsc_banner_icon_mobile', '');
+    $banner_icon_mobile = intval($_POST['game_bsc_banner_icon_mobile'] ?? 0);
+    update_option('game_bsc_banner_icon_mobile', $banner_icon_mobile);
+
+    if ($old_banner_icon_mobile != $banner_icon_mobile) {
+        game_bsc_log_settings_change(
+            'game_bsc_banner_icon_mobile',
+            $old_banner_icon_mobile,
+            $banner_icon_mobile,
             'update'
         );
     }

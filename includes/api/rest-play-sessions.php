@@ -572,7 +572,7 @@ function game_get_play_credit_history(WP_REST_Request $request) {
 	// ===== 2. TỔNG SỐ BẢN GHI LEDGER =====
 	$total_items = (int)$wpdb->get_var(
 		$wpdb->prepare(
-			"SELECT COUNT(*) FROM {$prefix}play_credit_ledger WHERE user_id = %d",
+			"SELECT COUNT(*) FROM {$prefix}play_credit_ledger l WHERE l.user_id = %d AND NOT (l.ref_type = 'MISSION' AND l.delta = 0)",
 			$user_id
 		)
 	);
@@ -623,7 +623,7 @@ function game_get_play_credit_history(WP_REST_Request $request) {
 			FROM {$prefix}play_credit_ledger l
 			LEFT JOIN {$prefix}user_mission_logs ml ON (l.ref_type = 'MISSION' AND l.ref_id = ml.id)
 			LEFT JOIN {$prefix}users_play_sessions s ON (l.ref_type = 'SESSION' AND l.ref_id = s.id)
-			WHERE l.user_id = %d
+			WHERE l.user_id = %d AND NOT (l.ref_type = 'MISSION' AND l.delta = 0)
 			ORDER BY l.created_at DESC, l.id DESC
 			LIMIT %d OFFSET %d",
 			$user_id,

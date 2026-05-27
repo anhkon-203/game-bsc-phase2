@@ -178,6 +178,7 @@ $current_time = $now->format('H:i:s');
 							<thead class="bg-gray-50">
 							<tr>
 								<th class="px-6 py-3 text-left">STT</th>
+								<th class="px-6 py-3 text-left">ID Redemption</th>
 								<th class="px-6 py-3 text-left">CUSTODYCD</th>
 								<th class="px-6 py-3 text-left">AFACCTNO</th>
 								<th class="px-6 py-3 text-left">Mã voucher / Tên hiện vật</th>
@@ -197,6 +198,10 @@ $current_time = $now->format('H:i:s');
 									<tr class="hover:bg-gray-50 transition td-content">
 										<!-- STT -->
 										<td class="px-6 py-3"><?php echo esc_html($redemption['stt']); ?></td>
+										<!-- ID Redemption -->
+										<td class="px-6 py-3">
+											<div class="text-sm font-medium text-gray-900"><?php echo esc_html($redemption['redemption_id']); ?></div>
+										</td>
 										<td class="px-6 py-3">
                                             <div class="text-sm text-gray-500"> <?php echo esc_html($redemption['external_user_id']); ?></div>
                                         </td>
@@ -294,7 +299,7 @@ $current_time = $now->format('H:i:s');
 								<?php endforeach; ?>
 							<?php else: ?>
 								<tr>
-									<td colspan="11" class="px-6 py-8 text-center text-gray-500">
+									<td colspan="12" class="px-6 py-8 text-center text-gray-500">
 										Không có dữ liệu để hiển thị
 									</td>
 								</tr>
@@ -359,6 +364,7 @@ function exportVoucherListToCSV() {
 
 	// CSV Header
 	const headers = [
+		'ID_REDEMPTION',
 		'CUSTODYCD',
 		'AFACCTNO',
 		'VOUCHER_ID',
@@ -388,6 +394,7 @@ function exportVoucherListToCSV() {
 
 		const rowData = [
 			// row.stt,                    // STT
+			row.redemption_id,          // ID_REDEMPTION
 			row.external_user_id,       // CUSTODYCD
 			formattedAfacctno,          // AFACCTNO (preserve leading zeros)
 			voucherCode,                // Mã voucher / Tên hiện vật

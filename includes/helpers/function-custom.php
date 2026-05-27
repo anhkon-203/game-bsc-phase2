@@ -609,7 +609,9 @@ function game_bsc_get_play_credit_ledger_data($page = 1, $per_page = 20, $date_f
 	$per_page = max(1, min((int)$per_page, 100));
 	$offset = ($page - 1) * $per_page;
 
-	$where_clauses = [];
+	$where_clauses = [
+		"NOT (l.ref_type = 'MISSION' AND l.delta = 0)"
+	];
 	$params = [];
 
 	if (!empty($date_from)) {

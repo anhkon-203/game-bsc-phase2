@@ -72,11 +72,18 @@ function game_bsc_get_banner(WP_REST_Request $request) {
 		$banner_icon_url = wp_get_attachment_image_url($banner_icon_id, 'full') ?: '';
 	}
 
+	$banner_icon_mobile_id = get_option('game_bsc_banner_icon_mobile', '');
+	$banner_icon_mobile_url = '';
+	if ($banner_icon_mobile_id) {
+		$banner_icon_mobile_url = wp_get_attachment_image_url($banner_icon_mobile_id, 'full') ?: '';
+	}
+
 	return wg_json_response(200, [
 		'banner_url' => esc_url($banner_url),
 		'banner_mobile_url' => esc_url($banner_mobile_url),
 		'banner_text' => esc_html($banner_text),
 		'banner_icon_url' => esc_url($banner_icon_url),
+		'banner_icon_mobile_url' => esc_url($banner_icon_mobile_url),
 	], __('Lấy banner game thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
 }
 
