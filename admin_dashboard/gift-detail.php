@@ -31,6 +31,8 @@ if ($gift_type === 'voucher') {
 				uvr.user_id,
 				uvr.voucher_post_id,
 				uvr.redeemed_at,
+				uvr.start_date,
+				uvr.gotit_expiry_date,
 				u.name as user_name,
 				u.external_user_id,
 				u.avatar_url,
@@ -77,12 +79,17 @@ if ($gift_type === 'voucher') {
 		}
 		
 		// Validity
-		$validity_data = get_field('validity', $voucher_id) ?: [];
-		if (!is_array($validity_data)) {
-			$validity_data = [];
+		if ($voucher_type === 'BSC') {
+			$valid_from = !empty($redemption['start_date']) ? $redemption['start_date'] : '';
+			$valid_to = !empty($redemption['gotit_expiry_date']) ? $redemption['gotit_expiry_date'] : '';
+		} else {
+			$validity_data = get_field('validity', $voucher_id) ?: [];
+			if (!is_array($validity_data)) {
+				$validity_data = [];
+			}
+			$valid_from = $validity_data['valid_from'] ?? '';
+			$valid_to = $validity_data['valid_to'] ?? '';
 		}
-		$valid_from = $validity_data['valid_from'] ?? '';
-		$valid_to = $validity_data['valid_to'] ?? '';
 		
 		// Banner & Thumbnail Images
 		$banner_image_id = get_field('banner_image', $voucher_id);

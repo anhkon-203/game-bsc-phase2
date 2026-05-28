@@ -481,6 +481,15 @@ function game_bsc_register_acf_fields() {
 				'name'  => 'validity',
 				'type'  => 'group',
 				'layout'=> 'row',
+				'conditional_logic' => array(
+					array(
+						array(
+							'field'    => 'field_voucher_type',
+							'operator' => '==',
+							'value'    => 'THIRD_PARTY',
+						),
+					),
+				),
 				'sub_fields' => array(
 					array(
 						'key'   => 'field_valid_from',

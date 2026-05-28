@@ -138,11 +138,15 @@ function game_bsc_get_user_gifts($user_id, $per_page = 10, $page = 1, $search = 
             'voucher' AS type,
             p.post_title AS name,
             uvr.redeemed_at AS received_date,
-            pm_from.meta_value AS valid_from,
-            pm_to.meta_value AS valid_to,
+            uvr.start_date,
+            uvr.gotit_expiry_date,
+            pm_type.meta_value AS voucher_type,
+            pm_from.meta_value AS acf_valid_from,
+            pm_to.meta_value AS acf_valid_to,
             'Đã sử dụng' AS status
         FROM {$prefix}user_voucher_redemptions uvr
         INNER JOIN {$wpdb->posts} p ON uvr.voucher_post_id = p.ID
+        LEFT JOIN {$wpdb->postmeta} pm_type ON p.ID = pm_type.post_id AND pm_type.meta_key = 'voucher_type'
         LEFT JOIN {$wpdb->postmeta} pm_from ON p.ID = pm_from.post_id AND pm_from.meta_key = 'validity_valid_from'
         LEFT JOIN {$wpdb->postmeta} pm_to ON p.ID = pm_to.post_id AND pm_to.meta_key = 'validity_valid_to'
         WHERE uvr.user_id = %d
@@ -208,13 +212,35 @@ function game_bsc_get_user_gifts($user_id, $per_page = 10, $page = 1, $search = 
 		
 		// ===== FORMAT DỮ LIỆU =====
 		$items = array_map(function($i) {
+			$valid_from = '-';
+			$valid_to = '-';
+			if ($i['type'] === 'voucher') {
+				$v_type = strtoupper(trim((string)($i['voucher_type'] ?? 'BSC')));
+				if ($v_type === 'BSC') {
+					$db_start = !empty($i['start_date']) ? $i['start_date'] : '';
+					$db_expiry = !empty($i['gotit_expiry_date']) ? $i['gotit_expiry_date'] : '';
+					if ($db_start !== '0000-00-00 00:00:00' && $db_start !== '') {
+						$valid_from = date('d/m/Y H:i:s', strtotime($db_start));
+					}
+					if ($db_expiry !== '0000-00-00 00:00:00' && $db_expiry !== '') {
+						$valid_to = date('d/m/Y H:i:s', strtotime($db_expiry));
+					}
+				} else {
+					if (!empty($i['acf_valid_from'])) {
+						$valid_from = date('d/m/Y H:i:s', strtotime($i['acf_valid_from']));
+					}
+					if (!empty($i['acf_valid_to'])) {
+						$valid_to = date('d/m/Y H:i:s', strtotime($i['acf_valid_to']));
+					}
+				}
+			}
 			return [
 				'id'            => (int)$i['id'],
 				'type'          => $i['type'],
 				'name'          => sanitize_text_field($i['name']),
 				'received_date' => date('d/m/Y H:i:s', strtotime($i['received_date'])), // ✅ Thêm giờ-phút-giây
-				'valid_from'    => $i['valid_from'] ? date('d/m/Y H:i:s', strtotime($i['valid_from'])) : '-', // ✅
-				'valid_to'      => $i['valid_to']   ? date('d/m/Y H:i:s', strtotime($i['valid_to']))   : '-', // ✅
+				'valid_from'    => $valid_from, // ✅
+				'valid_to'      => $valid_to,   // ✅
 				'used_date'     => '-',
 				'status'        => $i['status'],
 			];

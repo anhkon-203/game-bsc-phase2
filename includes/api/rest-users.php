@@ -205,7 +205,7 @@ function game_get_user_info(WP_REST_Request $request)
 		return wg_json_response(403, [
 			'error_code'         => 'invalid_account',
 			'show_login_button'  => $show_login_button,
-		], __('Bạn không thuộc đối tượng tham gia chương trình. Vui lòng theo dõi website của BSC để cập nhập các chương trình khuyến mại khác', WG_GAME_PLUGIN_TEXTDOMAIN), 401);
+		], __('Bạn không thuộc đối tượng tham gia chương trình. Vui lòng theo dõi website của BSC để cập nhập các chương trình khuyến mại khác', WG_GAME_PLUGIN_TEXTDOMAIN));
 	}
 
 	// ===== SECURITY: Kiểm tra session SSO =====

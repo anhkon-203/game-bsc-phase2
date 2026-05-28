@@ -22,6 +22,12 @@ function game_bsc_get_rules(WP_REST_Request $request) {
 		return wg_json_response(403, [], __('Yêu cầu không hợp lệ.', WG_GAME_PLUGIN_TEXTDOMAIN));
 	}
 	
+	// ===== SECURITY: Kiểm tra session SSO =====
+	$current_user = game_sso_require_session();
+	if (is_wp_error($current_user) || empty($current_user['id'])) {
+		return wg_json_response(401, ['login_url' => bsc_game_url_sso()], __('Bạn chưa đăng nhập. Vui lòng đăng nhập để tiếp tục.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+	
 	$rules = get_option('game_bsc_rules', []);
 	
 	if (!is_array($rules)) {
@@ -51,6 +57,12 @@ function game_bsc_get_banner(WP_REST_Request $request) {
 	$check_nonce = game_rest_perm_cb($request);
 	if (!$check_nonce){
 		return wg_json_response(403, [], __('Yêu cầu không hợp lệ.', WG_GAME_PLUGIN_TEXTDOMAIN));
+	}
+
+	// ===== SECURITY: Kiểm tra session SSO =====
+	$current_user = game_sso_require_session();
+	if (is_wp_error($current_user) || empty($current_user['id'])) {
+		return wg_json_response(401, ['login_url' => bsc_game_url_sso()], __('Bạn chưa đăng nhập. Vui lòng đăng nhập để tiếp tục.', WG_GAME_PLUGIN_TEXTDOMAIN));
 	}
 
 	$banner_id = get_option('game_bsc_banner_manager', '');

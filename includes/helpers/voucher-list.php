@@ -56,6 +56,8 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 			u.afacctno,
 			uvr.voucher_post_id,
 			uvr.redeemed_at,
+			uvr.start_date,
+			uvr.gotit_expiry_date,
 			p.post_title as voucher_name,
 			'voucher' as gift_type
 		FROM {$prefix}user_voucher_redemptions uvr
@@ -181,27 +183,34 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 			$voucher_type = get_field('voucher_type', $voucher_id) ?? 'BSC';
 			$is_bsc_voucher = strtoupper(trim((string) $voucher_type)) === 'BSC';
 			
-			// Lấy thông tin validity
-			$validity_data = get_field('validity', $voucher_id) ?: [];
-			if (!is_array($validity_data)) {
-				$validity_data = [];
-			}
-			$valid_from = $validity_data['valid_from'] ?? '';
-			$valid_to = $validity_data['valid_to'] ?? '';
-			$is_third_party_voucher = strtoupper(trim((string) $voucher_type)) === 'THIRD_PARTY';
-			if ($is_third_party_voucher) {
-				$valid_from = '';
-				$valid_to = '';
+			if ($is_bsc_voucher) {
+				$valid_from = !empty($redemption['start_date']) ? $redemption['start_date'] : '';
+				$valid_to = !empty($redemption['gotit_expiry_date']) ? $redemption['gotit_expiry_date'] : '';
+			} else {
+				// Lấy thông tin validity
+				$validity_data = get_field('validity', $voucher_id) ?: [];
+				if (!is_array($validity_data)) {
+					$validity_data = [];
+				}
+				$valid_from = $validity_data['valid_from'] ?? '';
+				$valid_to = $validity_data['valid_to'] ?? '';
+				$is_third_party_voucher = strtoupper(trim((string) $voucher_type)) === 'THIRD_PARTY';
+				if ($is_third_party_voucher) {
+					$valid_from = '';
+					$valid_to = '';
+				}
 			}
 			
 			// Format validity display
 			$validity_display = '';
-			if (!empty($valid_from) && !empty($valid_to)) {
-				$validity_display = date('d/m/Y', strtotime($valid_from)) . ' - ' . date('d/m/Y', strtotime($valid_to));
+			if ($is_bsc_voucher && empty($valid_from) && empty($valid_to)) {
+				$validity_display = 'Chưa đồng bộ';
+			} elseif (!empty($valid_from) && !empty($valid_to)) {
+				$validity_display = date('d/m/Y H:i', strtotime($valid_from)) . ' - ' . date('d/m/Y H:i', strtotime($valid_to));
 			} elseif (!empty($valid_to)) {
-				$validity_display = 'Đến ' . date('d/m/Y', strtotime($valid_to));
+				$validity_display = 'Đến ' . date('d/m/Y H:i', strtotime($valid_to));
 			} elseif (!empty($valid_from)) {
-				$validity_display = 'Từ ' . date('d/m/Y', strtotime($valid_from));
+				$validity_display = 'Từ ' . date('d/m/Y H:i', strtotime($valid_from));
 			} else {
 				$validity_display = 'Không giới hạn';
 			}

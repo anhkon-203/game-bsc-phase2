@@ -328,6 +328,7 @@ function game_bsc_install_tables() {
         user_id INT UNSIGNED NOT NULL,
         voucher_post_id BIGINT UNSIGNED NOT NULL,
         transaction_ref_id VARCHAR(191) NULL,
+        start_date DATETIME NULL,
         gotit_expiry_date DATETIME NULL,
         prinpaid INT NOT NULL DEFAULT 0,
         redeemed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -471,6 +472,27 @@ function game_bsc_ensure_users_afacctno_column() {
 }
 
 /**
+ * Ensure legacy installs have start_date column in game_user_voucher_redemptions.
+ */
+function game_bsc_ensure_voucher_redemptions_start_date_column() {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'game_user_voucher_redemptions';
+
+    // If table does not exist yet, let install routine handle it.
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) !== $table_name) {
+        return;
+    }
+
+    $column_exists = $wpdb->get_var("SHOW COLUMNS FROM `{$table_name}` LIKE 'start_date'");
+    if ($column_exists) {
+        return;
+    }
+
+    $wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `start_date` DATETIME NULL AFTER `transaction_ref_id`");
+}
+
+/**
  * Ensure legacy installs have prinpaid column in game_user_voucher_redemptions.
  */
 function game_bsc_ensure_voucher_redemptions_prinpaid_column() {
@@ -498,6 +520,7 @@ function game_bsc_update_db_check() {
     }
 
     game_bsc_ensure_users_afacctno_column();
+    game_bsc_ensure_voucher_redemptions_start_date_column();
     game_bsc_ensure_voucher_redemptions_prinpaid_column();
 }
 add_action('admin_init', 'game_bsc_update_db_check');
