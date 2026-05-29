@@ -565,11 +565,11 @@ function game_set_auth_cookie($token, $ttl = 10800) {
  * Cookie được PHP server đọc qua $_COOKIE để trả về error_code='game_invalid_account' trong API response.
  * httpOnly=true vì chỉ server cần đọc, JS không cần truy cập trực tiếp.
  */
-function game_set_invalid_account_cookie($ttl = 10800) {
+function game_set_invalid_account_cookie($ttl = 10800, $value = '1') {
   $expire = time() + $ttl;
   $cookie_name = 'game_invalid_account';
   if ( PHP_VERSION_ID >= 70300 ) {
-    setcookie( $cookie_name, '1', [
+    setcookie( $cookie_name, $value, [
       'expires'  => $expire,
       'path'     => defined('COOKIEPATH') ? COOKIEPATH : '/',
       'domain'   => defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '',
@@ -580,7 +580,7 @@ function game_set_invalid_account_cookie($ttl = 10800) {
   } else {
     setcookie(
       $cookie_name,
-      '1',
+      $value,
       $expire,
       ( defined('COOKIEPATH') ? COOKIEPATH : '/' ),
       ( defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '' ),
@@ -588,7 +588,7 @@ function game_set_invalid_account_cookie($ttl = 10800) {
       false
     );
   }
-  $_COOKIE[$cookie_name] = '1';
+  $_COOKIE[$cookie_name] = $value;
 }
 
 /**
@@ -725,7 +725,12 @@ function bsc_game_handle_sso_callback()
   // ===== RULE: Chỉ cho phép tài khoản nội địa (prefix 002C) =====
   if (empty($custodycd) || substr($custodycd, 0, 4) !== '002C' || !preg_match('/^002C[a-zA-Z0-9]+$/', $custodycd)) {
     // Tài khoản nước ngoài hoặc format không đúng
-    game_set_invalid_account_cookie(10800);
+    if (!empty($custodycd) && (substr($custodycd, 0, 4) === '002F' || preg_match('/^002F[a-zA-Z0-9]+$/', $custodycd))) {
+      // Tài khoản nước ngoài
+      game_set_invalid_account_cookie(10800, 'foreign');
+    } else {
+      game_set_invalid_account_cookie(10800, '1');
+    }
     return;
   }
 
@@ -802,9 +807,8 @@ function bsc_game_handle_sso_callback()
  * Gọi BSC Trading API /trade/accounts và lưu AFACCTNO vào cột afacctno của game_users.
  *
  * Điều kiện tìm tiểu khoản thường cơ sở Active:
- *   - accounttype   = 'SEC'  (chứng khoán)
- *   - mrtype        = 'N'    (thường – không ký quỹ)
- *   - alternateacct = 'Y'    (tiểu khoản cơ sở)
+ *   - TH1: accounttype = 'SEC' và mrtype = 'N'
+ *   - TH2: typename hoặc entypename = 'Thường' (nếu không đạt TH1)
  *
  * Hàm được gọi bất đồng bộ trong callback SSO nên KHÔNG block request;
  * lỗi chỉ ghi vào error_log, không ném exception.
@@ -863,9 +867,9 @@ function bsc_game_sync_afacctno(int $user_id, string $access_token): void
   $afacctno = null;
   foreach ($body['d'] as $account) {
     if (
-      strtoupper($account['accounttype']   ?? '') === 'SEC' &&
-      strtoupper($account['mrtype']        ?? '') === 'N'   &&
-      strtoupper($account['alternateacct'] ?? '') === 'Y'
+      (strtoupper($account['accounttype']   ?? '') === 'SEC' && strtoupper($account['mrtype'] ?? '') === 'N') ||
+      ($account['typename']                 ?? '') === 'Thường' ||
+      ($account['entypename']               ?? '') === 'Thường'
     ) {
       $afacctno = (string)($account['acctno'] ?? '');
       break;

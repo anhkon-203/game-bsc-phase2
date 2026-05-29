@@ -202,10 +202,15 @@ function game_get_user_info(WP_REST_Request $request)
 				break;
 		}
 
+		$message = __('Bạn không thuộc đối tượng tham gia chương trình. Vui lòng theo dõi website của BSC để cập nhập các chương trình khuyến mại khác', WG_GAME_PLUGIN_TEXTDOMAIN);
+		if ($_COOKIE['game_invalid_account'] === 'foreign') {
+			$message = __('You are not eligible for this game. Please follow BSC website for updates on other upcoming promotions', WG_GAME_PLUGIN_TEXTDOMAIN);
+		}
+
 		return wg_json_response(403, [
 			'error_code'         => 'invalid_account',
 			'show_login_button'  => $show_login_button,
-		], __('Bạn không thuộc đối tượng tham gia chương trình. Vui lòng theo dõi website của BSC để cập nhập các chương trình khuyến mại khác', WG_GAME_PLUGIN_TEXTDOMAIN));
+		], $message);
 	}
 
 	// ===== SECURITY: Kiểm tra session SSO =====
