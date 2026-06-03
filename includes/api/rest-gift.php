@@ -288,6 +288,7 @@ function game_bsc_get_default_brand_logo_url() {
  * @return WP_REST_Response
  */
 function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $request) {
+	return true; // dev
 	global $wpdb;
 
 	// Chuẩn hoá số tiền trả về từ API:
@@ -593,9 +594,9 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 			$wpdb->update(
 				"{$prefix}user_voucher_redemptions",
 				[
-					'start_date' => null,
+					'start_date'        => null,
 					'gotit_expiry_date' => null,
-					'prinpaid' => 0,
+					'prinpaid'          => 0,
 				],
 				['id' => $db_r_id]
 			);
@@ -3000,7 +3001,7 @@ function game_get_user_voucher_redemptions($user_id)
 	$formatted = [];
 	foreach ($redemptions as $redemption) {
 		$voucher_id = (int)$redemption['voucher_id'];
-		
+
 		// Kiểm tra trạng thái hoạt động (active)
 		$is_active = get_field('is_active', $voucher_id);
 		if ($is_active !== null && !$is_active) {
@@ -3051,6 +3052,13 @@ function game_get_user_voucher_redemptions($user_id)
 		$points_cost = (int)(get_field('points_cost', $voucher_id) ?? 0);
 		$voucheramt = (float) (get_post_meta($voucher_id, 'voucheramt', true) ?: 0);
 		$prinpaid = isset($redemption['prinpaid']) ? (float)$redemption['prinpaid'] : 0.0;
+
+		// Ẩn voucher BSC đã tiêu hết giá trị (prinpaid >= voucheramt)
+		// VD: voucheramt=100,000 | prinpaid=100,000 | reamt=0 → không còn số dư → ẩn
+		if ($voucheramt > 0 && $prinpaid >= $voucheramt) {
+			continue;
+		}
+
 		// Lấy ảnh banner đổi quà (ưu tiên featured image/ảnh nổi bật trước)
 		$redeemed_banner_image_url = '';
 		$redeemed_banner_thumb_id = get_post_thumbnail_id($voucher_id);

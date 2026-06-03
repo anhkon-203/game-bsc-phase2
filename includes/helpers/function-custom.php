@@ -238,14 +238,15 @@ function game_get_total_play_days($user_id) {
 	$stage_start = $game_info['start_date'];
 	$stage_end = $game_info['end_date'];
 	
-	// Đếm tất cả các ngày unique mà user đã đăng nhập trong chặng hiện tại
+	// Đếm các ngày unique T2-T6 (loại T7/CN) mà user đã đăng nhập trong kỳ game
 	$total_days = $wpdb->get_var(
 		$wpdb->prepare(
 			"SELECT COUNT(DISTINCT DATE(checked_at))
 			 FROM {$prefix}user_login_logs
 			 WHERE user_id = %d
 			 AND result = 'OK'
-			 AND DATE(checked_at) BETWEEN %s AND %s",
+			 AND DATE(checked_at) BETWEEN %s AND %s
+			 AND WEEKDAY(checked_at) BETWEEN 0 AND 4",
 			$user_id,
 			$stage_start,
 			$stage_end
@@ -374,13 +375,13 @@ function getEndpointFromMissionCode($missionCode)
 			'reward_spins' => $reward_spins,
 		];
 		if($missionCode === TRADE_100M_VND_CODE) {
-			if($missions[$missionCode]['amount_required'] > 0) {
+			if(isset($missions[$missionCode]['amount_required']) && $missions[$missionCode]['amount_required'] > 0) {
 				$array_urls['amount_required'] = $missions[$missionCode]['amount_required'];
 			} else {
 				$array_urls['amount_required'] = TRADE_100M_VND_DEFAULT_VALUE;
 			}
 		} else if($missionCode === FIRST_DEPOSIT_CODE) {
-			$array_urls['open_new_account_base_url'] = trim($missions[OPEN_NEW_ACCOUNT_CODE]['api_url']);
+			$array_urls['open_new_account_base_url'] = trim($missions[OPEN_NEW_ACCOUNT_CODE]['api_url'] ?? '');
 			$array_urls['open_new_account_end_point'] = $missionMap[OPEN_NEW_ACCOUNT_CODE];
 		}
 		return $array_urls;

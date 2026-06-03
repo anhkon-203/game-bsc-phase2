@@ -41,6 +41,7 @@ function game_bsc_init(WP_REST_Request $request) {
     
     header( 'Content-Type: text/html; charset=utf-8' );
     echo $index;
+    exit;
 }
 
 

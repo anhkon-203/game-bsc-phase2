@@ -17,7 +17,11 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 	$prefix = $wpdb->prefix . 'game_';
 	
 	$page = max(1, (int)$page);
-	$per_page = max(1, min((int)$per_page, 100));
+	if ($per_page === -1) {
+		$per_page = 999999;
+	} else {
+		$per_page = max(1, min((int)$per_page, 100));
+	}
 	$offset = ($page - 1) * $per_page;
 	
 	$all_redemptions = [];
@@ -173,6 +177,7 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 			'afacctno' => sanitize_text_field($redemption['afacctno'] ?? ''),
 			'redeemed_at' => $redemption['redeemed_at'],
 			'redeemed_at_display' => date('d/m/Y H:i', strtotime($redemption['redeemed_at'])),
+			'redeemed_at_date' => date('d/m/Y', strtotime($redemption['redeemed_at'])),
 			'gift_type' => $redemption['gift_type'],
 			'gift_type_label' => $is_voucher ? 'Voucher' : 'Hiện vật',
 		];

@@ -293,8 +293,8 @@ function game_get_user_info(WP_REST_Request $request)
 		$total_possible_stages = $current_stage + $balance;
 		
 		$start_stage = $min_stage;
-		// Nhưng sẽ bị chặn lại nếu user không còn đủ lượt (end_stage không vượt quá total_possible_stages)
-		$end_stage = min($current_stage + 5, $total_possible_stages);
+		// Đảm bảo hiển thị tối thiểu chặng kế tiếp (current_stage + 1) ngay cả khi hết lượt chơi
+		$end_stage = min($current_stage + 5, max($total_possible_stages, $current_stage + 1), $max_stage);
 		
 		$weekday_range = [];
 		
@@ -307,16 +307,16 @@ function game_get_user_info(WP_REST_Request $request)
 			$questions_per_day = !empty($stage_info['questions_per_day']) ? (int)$stage_info['questions_per_day'] : 0;
 			
 			$day_data = [
-				'day_index' => $stage_num,
-				'is_active' => $is_active
+				'day_index'        => $stage_num,
+				'is_active'        => $is_active,
+				'answered_count'   => 0,
+				'total_possible'   => $questions_per_day,
+				'pieces_collected' => 0,
+				'max_points'       => 0
 			];
 			
 			// Nếu là chặng hiện tại, thêm dữ liệu chi tiết
 			if ($is_active) {
-				$day_data['answered_count'] = 0;
-				$day_data['total_possible'] = 0;
-				$day_data['pieces_collected'] = 0;
-				$day_data['max_points'] = 0;
 				
 				// Lấy số câu trả lời hôm nay
 				$answered_count = $wpdb->get_var(

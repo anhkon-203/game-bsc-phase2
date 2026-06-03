@@ -103,6 +103,12 @@ $current_time = $now->format('H:i:s');
 		$total_pages = $result['pagination']['total_pages'];
 		$current_page = $result['pagination']['current_page'];
 	}
+
+	$export_redemptions = [];
+	$export_result = game_bsc_get_voucher_redemptions_data(1, -1, $date_from, $date_to, $search, $gift_type, $voucher_type);
+	if ($export_result['status'] === 'success') {
+		$export_redemptions = $export_result['data'];
+	}
 	?>
 	
 	<section class="list-user ">
@@ -349,8 +355,8 @@ $current_time = $now->format('H:i:s');
 
 <script>
 function exportVoucherListToCSV() {
-	// Get all data from current page
-	const data = <?php echo json_encode($redemptions); ?>;
+	// Get all data (unpaginated)
+	const data = <?php echo json_encode($export_redemptions); ?>;
 
 	if (!data || data.length === 0) {
 		alert('Không có dữ liệu để xuất!');
@@ -361,11 +367,11 @@ function exportVoucherListToCSV() {
 	const headers = [
 		'CUSTODYCD',
 		'AFACCTNO',
-		'VOUCHER_ID',
-		'REDEEMED_AT',
-		'VOUCHER_VALUE',
+		'VOUCHERID',
+		'REGDATE',
+		'VOUCHERAMT',
 		'POINTS_REQUIRED',
-		'DESCRIPTION',
+		'DESCR',
 		'VOUCHER_TYPE',
 	];
 
@@ -383,19 +389,20 @@ function exportVoucherListToCSV() {
 		const voucherValue = row.gift_type === 'voucher' ? row.voucher_value : '';
 		const pointsCost = row.gift_type === 'voucher' ? row.points_cost : '';
 
-		// Format AFACCTNO to preserve leading zeros in Excel (use ="value" format)
+		// Format AFACCTNO & VOUCHERID to preserve leading zeros in Excel (use ="value" format)
 		const formattedAfacctno = row.afacctno ? `="${row.afacctno}"` : '';
+		const formattedVoucherCode = voucherCode ? `="${voucherCode}"` : '';
 
 		const rowData = [
 			// row.stt,                    // STT
 			row.external_user_id,       // CUSTODYCD
 			formattedAfacctno,          // AFACCTNO (preserve leading zeros)
-			voucherCode,                // Mã voucher / Tên hiện vật
-			row.redeemed_at_display,    // Thời gian đổi
-			voucherValue,               // GIÁ_TRỊ_VOUCHER
-			pointsCost,                 // SỐ_ĐIỂM_CẦN_ĐỔI
-			voucherName,                // DESCRIPTION
-			voucherType,                // Loại voucher
+			formattedVoucherCode,       // VOUCHERID (preserve leading zeros)
+			row.redeemed_at_date,       // REGDATE (dd/mm/yyyy format)
+			voucherValue,               // VOUCHERAMT
+			pointsCost,                 // POINTS_REQUIRED
+			voucherName,                // DESCR
+			voucherType,                // VOUCHER_TYPE
 			// row.gift_type_label         // Loại quà
 		];
 

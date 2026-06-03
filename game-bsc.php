@@ -936,6 +936,22 @@ function bsc_game_sync_afacctno(int $user_id, string $access_token): void
  */
 
 function game_sso_require_session() {
+
+    // Code dev
+    // $user = [
+    //     'id'       => 1,
+    //     'provider'    => 'bsc',
+    //     'external_user_id'    => '123456',
+    //     'name'    => 'Triệu Ngọc Tài',
+    //     'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
+    // ];
+    // $_SESSION['game_user']        = $user;
+    // $_SESSION['game_logged_in_at'] = time();
+    //   if (session_status() === PHP_SESSION_ACTIVE) {
+    //       session_write_close(); // nhả khóa ngay
+    //   }
+    // return $user;
+
   // 1. Kiểm tra token từ cookie game
   if (empty($_COOKIE[GAME_AUTH_COOKIE])) {
     return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
@@ -1467,123 +1483,131 @@ add_filter(
  */
 
 function save_user_badges() {
-  global $wpdb;
-  $user = game_sso_require_session();
-  if (is_wp_error($user) || empty($user['id'])) {
-    return false;
-  }
-  
-  $user_id = absint($user['id']);
-	$prefix = $wpdb->prefix . 'game_';
-	
+	global $wpdb;
+	$user = game_sso_require_session();
+	if (is_wp_error($user) || empty($user['id'])) {
+		return false;
+	}
+
+	$user_id = absint($user['id']);
+	$prefix  = $wpdb->prefix . 'game_';
+
 	try {
-		// Bắt đầu transaction
+		// Bắt đầu transaction (bao toàn bộ vòng lặp)
 		$wpdb->query('START TRANSACTION');
-		
-		// Đếm số huy hiệu user đang có
-		$total_record = (int) $wpdb->get_var($wpdb->prepare(
-			"SELECT COUNT(*) FROM {$prefix}user_badges WHERE user_id = %d",
-			$user_id
-		));
-		
-		// Lấy huy hiệu tiếp theo theo thứ tự (hoặc cái đầu tiên)
-		$badge_order = ($total_record == 0) ? 1 : ($total_record + 1);
-		
-		$query = new WP_Query([
-			'post_type'      => 'game_badges',
-			'post_status'    => 'publish',
-			'posts_per_page' => 1,
-			'meta_key'       => 'badge_order',
-			'meta_query'     => [
-				[
-					'key'     => 'badge_order',
-					'value'   => $badge_order,
-					'compare' => '=',
-					'type'    => 'NUMERIC'
-				]
-			]
-		]);
-		
-		if (!$query->have_posts()) {
-			$wpdb->query('ROLLBACK');
-			return false; // Không còn huy hiệu tiếp theo
-		}
-		
-		$badge_post_id = $query->posts[0]->ID;
-		
-		// Điều kiện nhận huy hiệu
+
+		// Tính trước 1 lần, dùng cho tất cả các vòng
 		$consecutive_days = game_get_consecutive_play_days($user_id);
 		$total_days       = game_get_total_play_days($user_id);
-		$condition_type   = get_field('condition_type', $badge_post_id) ?: '';
-		$is_get_badge     = false;
-		
-		if ($condition_type === 'consecutive_days') {
-			$is_get_badge = $consecutive_days >= (int)get_field('consecutive_days', $badge_post_id);
-		} elseif ($condition_type === 'total_days') {
-			$is_get_badge = $total_days >= (int)get_field('total_days', $badge_post_id);
-		}
-		
-		if (!$is_get_badge) {
-			$wpdb->query('ROLLBACK');
-			return false;
-		}
-		
-		// Insert huy hiệu
-		if (!$wpdb->insert(
-			"{$prefix}user_badges",
-			[
-				'user_id'       => $user_id,
-				'badge_post_id' => $badge_post_id,
-				'awarded_at'    => game_now(),
-			],
-			['%d','%d','%s']
-		)) {
-			$wpdb->query('ROLLBACK');
-			return false;
-		}
-		
-		$user_badge_id = $wpdb->insert_id;
-		$points_reward = (int)get_field('points_reward', $badge_post_id);
-		
-		if ($points_reward > 0) {
-			// Insert / update số dư
-			if (!$wpdb->query($wpdb->prepare(
-				"INSERT INTO {$prefix}user_points_balances (user_id, balance, updated_at)
-                 VALUES (%d, %d, %s)
-                 ON DUPLICATE KEY UPDATE
-                    balance = balance + VALUES(balance),
-                    updated_at = VALUES(updated_at)",
-				$user_id,
-				$points_reward,
-				game_now()
-			))) {
-				$wpdb->query('ROLLBACK');
-				return false;
-			}
-			
-			// Ghi log
-			if (!$wpdb->insert(
-				"{$prefix}user_points_ledger",
-				[
-					'user_id'    => $user_id,
-					'delta'      => $points_reward,
-					'ref_type'   => 'BADGE',
-					'ref_id'     => $user_badge_id,
-					'created_at' => game_now()
+		$badges_awarded   = 0;
+		$max_iterations   = 20; // Giới hạn an toàn tránh vòng lặp vô tận
+
+		// Vòng lặp: cấp hết tất cả badge mà user đủ điều kiện trong 1 lần login
+		while ($max_iterations-- > 0) {
+
+			// Đếm lại số huy hiệu đang có (sau mỗi lần insert)
+			$total_record = (int) $wpdb->get_var($wpdb->prepare(
+				"SELECT COUNT(*) FROM {$prefix}user_badges WHERE user_id = %d",
+				$user_id
+			));
+
+			// Tính badge_order tiếp theo cần cấp
+			$badge_order = ($total_record === 0) ? 1 : ($total_record + 1);
+
+			$query = new WP_Query([
+				'post_type'      => 'game_badges',
+				'post_status'    => 'publish',
+				'posts_per_page' => 1,
+				'meta_key'       => 'badge_order',
+				'meta_query'     => [
+					[
+						'key'     => 'badge_order',
+						'value'   => $badge_order,
+						'compare' => '=',
+						'type'    => 'NUMERIC',
+					],
 				],
-				['%d','%d','%s','%d','%s']
+			]);
+
+			// Không còn badge tiếp theo → dừng vòng lặp
+			if (!$query->have_posts()) {
+				break;
+			}
+
+			$badge_post_id  = $query->posts[0]->ID;
+			$condition_type = get_field('condition_type', $badge_post_id) ?: '';
+			$is_get_badge   = false;
+
+			if ($condition_type === 'consecutive_days') {
+				$is_get_badge = $consecutive_days >= (int) get_field('consecutive_days', $badge_post_id);
+			} elseif ($condition_type === 'total_days') {
+				$is_get_badge = $total_days >= (int) get_field('total_days', $badge_post_id);
+			}
+
+			// Điều kiện không thỏa → không còn badge nào cấp được → dừng
+			if (!$is_get_badge) {
+				break;
+			}
+
+			// Insert huy hiệu
+			if (!$wpdb->insert(
+				"{$prefix}user_badges",
+				[
+					'user_id'       => $user_id,
+					'badge_post_id' => $badge_post_id,
+					'awarded_at'    => game_now(),
+				],
+				['%d', '%d', '%s']
 			)) {
 				$wpdb->query('ROLLBACK');
 				return false;
 			}
+
+			$user_badge_id = $wpdb->insert_id;
+			$points_reward = (int) get_field('points_reward', $badge_post_id);
+
+			if ($points_reward > 0) {
+				// Cộng điểm vào số dư
+				if (!$wpdb->query($wpdb->prepare(
+					"INSERT INTO {$prefix}user_points_balances (user_id, balance, updated_at)
+					 VALUES (%d, %d, %s)
+					 ON DUPLICATE KEY UPDATE
+					    balance    = balance + VALUES(balance),
+					    updated_at = VALUES(updated_at)",
+					$user_id,
+					$points_reward,
+					game_now()
+				))) {
+					$wpdb->query('ROLLBACK');
+					return false;
+				}
+
+				// Ghi log điểm
+				if (!$wpdb->insert(
+					"{$prefix}user_points_ledger",
+					[
+						'user_id'    => $user_id,
+						'delta'      => $points_reward,
+						'ref_type'   => 'BADGE',
+						'ref_id'     => $user_badge_id,
+						'created_at' => game_now(),
+					],
+					['%d', '%d', '%s', '%d', '%s']
+				)) {
+					$wpdb->query('ROLLBACK');
+					return false;
+				}
+			}
+
+			$badges_awarded++;
+			// Tiếp tục vòng lặp để check badge kế tiếp
 		}
-		
-		// Commit transaction
+
+		// Commit toàn bộ
 		$wpdb->query('COMMIT');
-		return true;
-		
+		return $badges_awarded > 0;
+
 	} catch (Exception $e) {
-		// Rollback nếu có lỗi
 		$wpdb->query('ROLLBACK');
 		return false;
 	}

@@ -33,6 +33,7 @@ if ($gift_type === 'voucher') {
 				uvr.redeemed_at,
 				uvr.start_date,
 				uvr.gotit_expiry_date,
+				uvr.prinpaid,
 				u.name as user_name,
 				u.external_user_id,
 				u.avatar_url,
@@ -90,6 +91,11 @@ if ($gift_type === 'voucher') {
 			$valid_from = $validity_data['valid_from'] ?? '';
 			$valid_to = $validity_data['valid_to'] ?? '';
 		}
+
+		// Thông tin sử dụng voucher BSC (prinpaid / voucheramt / reamt)
+		$prinpaid   = (float) ($redemption['prinpaid'] ?? 0);
+		$voucheramt = (float) (get_post_meta($voucher_id, 'voucheramt', true) ?: 0);
+		$reamt      = ($voucheramt > 0) ? max(0, $voucheramt - $prinpaid) : 0;
 		
 		// Banner & Thumbnail Images
 		$banner_image_id = get_field('banner_image', $voucher_id);
@@ -109,33 +115,37 @@ if ($gift_type === 'voucher') {
 		}
 		
 		$gift_data = [
-			'type' => 'voucher',
-			'redemption_id' => $redemption['id'],
-			'user_id' => $redemption['user_id'],
-			'user_name' => $redemption['user_name'],
-			'external_user_id' => $redemption['external_user_id'],
-			'avatar_url' => $redemption['avatar_url'],
-			'user_created_at' => $redemption['user_created_at'],
-			'redeemed_at' => $redemption['redeemed_at'],
-			'voucher_id' => $voucher_id,
-			'voucher_code' => $voucher_code,
-			'voucher_name' => $redemption['voucher_name'],
-			'voucher_description' => $redemption['voucher_description'],
-			'voucher_type' => $voucher_type,
-			'voucher_applicable_stores' => $voucher_applicable_stores,
-			'voucher_type_label' => ($voucher_type === 'BSC') ? 'Voucher tại BSC' : 'Voucher bên thứ 3',
-			'points_cost' => $points_cost,
-			'quantity' => $quantity,
-			'redemption_count' => $redemption_count,
-			'is_active' => $is_active,
-			'partner_name' => $partner_name,
-			'partner_url' => $partner_url,
-			'partner_logo_url' => $partner_logo_url,
-			'valid_from' => $valid_from,
-			'valid_to' => $valid_to,
-			'banner_image_url' => $banner_image_url,
-			'thumbnail_url' => $thumbnail_url,
-			'redeemed_banner_image_url' => $redeemed_banner_image_url,
+			'type'                     => 'voucher',
+			'redemption_id'            => $redemption['id'],
+			'user_id'                  => $redemption['user_id'],
+			'user_name'                => $redemption['user_name'],
+			'external_user_id'         => $redemption['external_user_id'],
+			'avatar_url'               => $redemption['avatar_url'],
+			'user_created_at'          => $redemption['user_created_at'],
+			'redeemed_at'              => $redemption['redeemed_at'],
+			'voucher_id'               => $voucher_id,
+			'voucher_code'             => $voucher_code,
+			'voucher_name'             => $redemption['voucher_name'],
+			'voucher_description'      => $redemption['voucher_description'],
+			'voucher_type'             => $voucher_type,
+			'voucher_applicable_stores'=> $voucher_applicable_stores,
+			'voucher_type_label'       => ($voucher_type === 'BSC') ? 'Voucher tại BSC' : 'Voucher bên thứ 3',
+			'points_cost'              => $points_cost,
+			'quantity'                 => $quantity,
+			'redemption_count'         => $redemption_count,
+			'is_active'                => $is_active,
+			'partner_name'             => $partner_name,
+			'partner_url'              => $partner_url,
+			'partner_logo_url'         => $partner_logo_url,
+			'valid_from'               => $valid_from,
+			'valid_to'                 => $valid_to,
+			'banner_image_url'         => $banner_image_url,
+			'thumbnail_url'            => $thumbnail_url,
+			'redeemed_banner_image_url'=> $redeemed_banner_image_url,
+			// Thông tin sử dụng voucher BSC từ BSC Trading API
+			'prinpaid'                 => $prinpaid,
+			'voucheramt'               => $voucheramt,
+			'reamt'                    => $reamt,
 		];
 	}
 	
@@ -362,7 +372,7 @@ if (!$gift_data) {
 							</div>
 						<?php endif; ?>
 
-						<?php if (!empty($gift_data['voucher_applicable_stores'])): ?>
+						<?php if (!empty($gift_data['voucher_applicable_stores']) && $gift_data['voucher_type'] !== 'BSC'): ?>
 							<div class="info-row">
 								<div class="info-label">Cửa hàng áp dụng:</div>
 								<div class="info-value" style="white-space: pre-wrap;"><?php echo esc_html($gift_data['voucher_applicable_stores']); ?></div>
@@ -408,6 +418,57 @@ if (!$gift_data) {
 							<div class="info-row">
 								<div class="info-label">Mô tả:</div>
 								<div class="info-value"><?php echo wp_kses_post($gift_data['voucher_description']); ?></div>
+							</div>
+						<?php endif; ?>
+
+						<?php if ($gift_data['voucher_type'] === 'BSC' && $gift_data['voucheramt'] > 0): ?>
+							<?php
+							$used_pct   = min(100, ($gift_data['voucheramt'] > 0) ? ($gift_data['prinpaid'] / $gift_data['voucheramt'] * 100) : 0);
+							$is_fully_used = ($gift_data['prinpaid'] >= $gift_data['voucheramt']);
+							?>
+							<div class="mt-6 pt-6 border-t border-gray-200">
+								<h5 class="font-semibold text-[#31333F] mb-4">Thông tin sử dụng (BSC Trading):</h5>
+
+								<div class="info-row">
+									<div class="info-label">Mệnh giá voucher:</div>
+									<div class="info-value font-semibold"><?php echo number_format($gift_data['voucheramt'], 0, ',', '.'); ?> ₫</div>
+								</div>
+
+								<div class="info-row">
+									<div class="info-label">Đã sử dụng (prinpaid):</div>
+									<div class="info-value">
+										<span class="font-semibold <?php echo $is_fully_used ? 'text-red-600' : 'text-orange-600'; ?>">
+											<?php echo number_format($gift_data['prinpaid'], 0, ',', '.'); ?> ₫
+										</span>
+										<?php if ($is_fully_used): ?>
+											<span style="margin-left:8px; padding: 2px 8px; border-radius: 4px; font-size: 11px; background:#fee2e2; color:#dc2626;">Đã dùng hết</span>
+										<?php endif; ?>
+									</div>
+								</div>
+
+								<div class="info-row">
+									<div class="info-label">Còn lại (reamt):</div>
+									<div class="info-value">
+										<span class="font-semibold <?php echo $gift_data['reamt'] > 0 ? 'text-green-600' : 'text-gray-400'; ?>">
+											<?php echo number_format($gift_data['reamt'], 0, ',', '.'); ?> ₫
+										</span>
+									</div>
+								</div>
+
+								<div class="mt-3">
+									<div class="flex justify-between text-xs text-gray-500 mb-1">
+										<span>Đã dùng: <?php echo number_format($used_pct, 1); ?>%</span>
+										<span>Còn: <?php echo number_format(100 - $used_pct, 1); ?>%</span>
+									</div>
+									<div class="w-full bg-gray-200 rounded-full" style="height:10px;">
+										<div class="rounded-full" style="height:10px; width:<?php echo $used_pct; ?>%; background: <?php echo $is_fully_used ? '#dc2626' : '#f97316'; ?>;transition:width .4s;"></div>
+									</div>
+								</div>
+							</div>
+						<?php elseif ($gift_data['voucher_type'] === 'BSC'): ?>
+							<div class="mt-6 pt-6 border-t border-gray-200">
+								<h5 class="font-semibold text-[#31333F] mb-3">Thông tin sử dụng (BSC Trading):</h5>
+								<div class="text-sm text-gray-400 italic">Chưa có dữ liệu từ BSC Trading API (voucheramt chưa được cấu hình)</div>
 							</div>
 						<?php endif; ?>
 						

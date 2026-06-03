@@ -836,10 +836,18 @@ function game_get_random_reward($user_id, $session_id, $order_index) {
 		);
 	}
 
+    $artifact_name = '';
+    if ($reward['outcome'] === 'PIECE' && !empty($reward['artifact_id'])) {
+        $artifact_name = $wpdb->get_var($wpdb->prepare(
+            "SELECT name FROM {$prefix}artifacts WHERE id = %d",
+            $reward['artifact_id']
+        ));
+    }
+
     $response_data = array(
         'type' => $reward['outcome'],
         'value' => ($reward['outcome'] === 'POINT') ? ($reward['points_awarded'] ?? 0) : ($reward['piece_url'] ?? ''),
-        'text' => ($reward['outcome'] === 'POINT') ? "{$reward['points_awarded']} điểm" : "1x Mảnh ghép hiện vật ID {$reward['piece_id']}",
+        'text' => ($reward['outcome'] === 'POINT') ? "{$reward['points_awarded']} điểm" : "Mảnh ghép " . ($artifact_name ?: "hiện vật ID {$reward['piece_id']}"),
         'artifact_id' => ($reward['outcome'] === 'PIECE') ? $reward['artifact_id'] : 0,
         'piece_code' => ($reward['outcome'] === 'PIECE') ? $reward['piece_code'] : '',
         'is_artifact_complete' => $is_artifact_complete,
