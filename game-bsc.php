@@ -650,7 +650,7 @@ function game_clear_invalid_account_cookie() {
  * Validate an auth token from cookie. Returns user array on success or WP_Error.
  */
 function game_validate_user_token($token) {
-  if (empty($token)) return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
+  if (empty($token)) return new WP_Error('not_logged_in', 'Plugin auth token is empty', ['status' => 401]);
   global $wpdb;
   $table = $wpdb->prefix . 'game_user_tokens';
   $user_table = $wpdb->prefix . 'game_users';
@@ -663,7 +663,7 @@ function game_validate_user_token($token) {
      WHERE t.token_hash = %s AND t.expires_at >= %s",
     $hash, $now
   ));
-  if (!$row) return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
+  if (!$row) return new WP_Error('not_logged_in', 'Plugin auth token not found or expired in DB', ['status' => 401]);
   return [
     'id'               => (int)$row->user_id,
     'provider'         => $row->provider,
@@ -748,8 +748,16 @@ function bsc_game_url_sso_logout()
  */
 function bsc_game_handle_sso_callback()
 {
-  if (!isset($_COOKIE['access_token']) || isset($_COOKIE[GAME_AUTH_COOKIE])) {
+  if (!isset($_COOKIE['access_token'])) {
     return;
+  }
+
+  // ===== Kiểm tra token plugin còn hạn không =====
+  if (isset($_COOKIE[GAME_AUTH_COOKIE])) {
+    $existing = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
+    if (!is_wp_error($existing)) {
+      return; // Token còn hợp lệ, không cần tạo mới
+    }
   }
 
   $access_token = $_COOKIE['access_token'];
@@ -821,13 +829,7 @@ function bsc_game_handle_sso_callback()
   }
 
 
-  // ===== Kiểm tra token plugin còn hạn không =====
-  if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
-    $existing = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
-    if (!is_wp_error($existing)) {
-      return; // Token còn hợp lệ, không cần tạo mới
-    }
-  }
+
 
   // ===== Tạo plugin auth token (opaque, 3h) =====
   $token = game_generate_user_token($user_id, 10800);
@@ -954,7 +956,7 @@ function game_sso_require_session() {
 
   // 1. Kiểm tra token từ cookie game
   if (empty($_COOKIE[GAME_AUTH_COOKIE])) {
-    return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
+    return new WP_Error('not_logged_in', 'Plugin auth token cookie (game_auth_token) is missing', ['status' => 401]);
   }
 
   $user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
@@ -966,7 +968,7 @@ function game_sso_require_session() {
   if (empty($_COOKIE['access_token'])) {
     // Không có access_token, xem như chưa đăng nhập sso
     game_revoke_user_token($_COOKIE[GAME_AUTH_COOKIE]);
-    return new WP_Error('not_logged_in', 'SSO access token missing', ['status' => 401]);
+    return new WP_Error('not_logged_in', 'SSO access token cookie (access_token) is missing', ['status' => 401]);
   }
 
   $access_token = $_COOKIE['access_token'];
@@ -979,7 +981,7 @@ function game_sso_require_session() {
   if ($stored_hash !== null && md5($access_token) !== $stored_hash) {
     error_log('[SSO check] game_sso_require_session: access_token superseded by new login for user_id=' . $user['id']);
     game_force_logout_cookies();
-    return new WP_Error('not_logged_in', 'Session superseded by new login', ['status' => 401]);
+    return new WP_Error('not_logged_in', 'Session superseded by new login (access token hash mismatch)', ['status' => 401]);
   }
 
   // 4. Kiểm tra SSO token có còn hợp lệ với server không (chống token hết hạn tự nhiên)
@@ -1020,7 +1022,7 @@ function game_sso_require_session() {
       // Token SSO không hợp lệ / hết hạn → force logout toàn bộ session
       game_force_logout_cookies();
 
-      return new WP_Error('not_logged_in', 'SSO session expired', ['status' => 401]);
+      return new WP_Error('not_logged_in', 'SSO session expired (trading server status: ' . $http_code . ')', ['status' => 401]);
     }
 
     // Token SSO hợp lệ -> Lưu cache transient trong 1 phút (60 giây) để phát hiện hết hạn nhanh

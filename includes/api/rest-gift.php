@@ -288,7 +288,6 @@ function game_bsc_get_default_brand_logo_url() {
  * @return WP_REST_Response
  */
 function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $request) {
-	return true; // dev
 	global $wpdb;
 
 	// Chuẩn hoá số tiền trả về từ API:
@@ -583,23 +582,40 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 			continue;
 		}
 
-		// Nếu bản ghi chưa được reset về NULL/0 thì tiến hành reset
-		$has_data = (
-			$db_r['start_date'] !== null ||
-			$db_r['gotit_expiry_date'] !== null ||
-			(int)$db_r['prinpaid'] !== 0
-		);
-
-		if ($has_data) {
-			$wpdb->update(
-				"{$prefix}user_voucher_redemptions",
-				[
-					'start_date'        => null,
-					'gotit_expiry_date' => null,
-					'prinpaid'          => 0,
-				],
-				['id' => $db_r_id]
+		if ($db_r['start_date'] === null) {
+			// A. Voucher chưa từng được đồng bộ (đang đợi BSC tạo) nhưng nay ko có trong API -> reset về NULL/0
+			$has_data = (
+				$db_r['gotit_expiry_date'] !== null ||
+				(int)$db_r['prinpaid'] !== 0
 			);
+
+			if ($has_data) {
+				$wpdb->update(
+					"{$prefix}user_voucher_redemptions",
+					[
+						'start_date'        => null,
+						'gotit_expiry_date' => null,
+						'prinpaid'          => 0,
+					],
+					['id' => $db_r_id]
+				);
+			}
+		} else {
+			// B. Voucher ĐÃ từng được đồng bộ trước đó nhưng nay biến mất khỏi API của BSC.
+			// Nghĩa là BSC đã xoá voucher này khỏi API do đã tiêu hết hoặc hết hạn.
+			// Cập nhật prinpaid = voucheramt để ẩn voucher khỏi UI và giữ nguyên start_date/gotit_expiry_date để làm lịch sử.
+			$voucher_post_id = (int)$db_r['voucher_post_id'];
+			$voucheramt = (float) (get_post_meta($voucher_post_id, 'voucheramt', true) ?: 0);
+
+			if ((int)$db_r['prinpaid'] !== (int)$voucheramt) {
+				$wpdb->update(
+					"{$prefix}user_voucher_redemptions",
+					[
+						'prinpaid' => $voucheramt,
+					],
+					['id' => $db_r_id]
+				);
+			}
 		}
 	}
 
