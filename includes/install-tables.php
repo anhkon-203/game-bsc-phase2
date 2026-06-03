@@ -28,6 +28,7 @@ function game_bsc_install_tables() {
         name VARCHAR(255) NOT NULL,
         avatar_url VARCHAR(255) DEFAULT NULL,
         afacctno VARCHAR(32) DEFAULT NULL,
+        access_token_hash VARCHAR(32) DEFAULT NULL COMMENT 'md5 hash của SSO access_token hiện tại, dùng detect multi-login',
         status TINYINT(1) NOT NULL DEFAULT 1,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_login_at DATETIME NULL,
@@ -513,6 +514,26 @@ function game_bsc_ensure_voucher_redemptions_prinpaid_column() {
     $wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `prinpaid` INT NOT NULL DEFAULT 0 AFTER `gotit_expiry_date`");
 }
 
+
+/**
+ * Đảm bảo cột access_token_hash tồn tại trong game_users (cho các install cũ).
+ */
+function game_bsc_ensure_users_access_token_hash_column() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'game_users';
+
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) !== $table_name) {
+        return;
+    }
+
+    $column_exists = $wpdb->get_var("SHOW COLUMNS FROM `{$table_name}` LIKE 'access_token_hash'");
+    if ($column_exists) {
+        return;
+    }
+
+    $wpdb->query("ALTER TABLE `{$table_name}` ADD COLUMN `access_token_hash` VARCHAR(32) DEFAULT NULL COMMENT 'md5 hash của SSO access_token hiện tại, dùng detect multi-login' AFTER `afacctno`");
+}
+
 // Phát hành bản mới
 function game_bsc_update_db_check() {
     if (get_option('wg_game_db_version') != WG_GAME_PLUGIN_DB_VERSION) {
@@ -520,6 +541,7 @@ function game_bsc_update_db_check() {
     }
 
     game_bsc_ensure_users_afacctno_column();
+    game_bsc_ensure_users_access_token_hash_column();
     game_bsc_ensure_voucher_redemptions_start_date_column();
     game_bsc_ensure_voucher_redemptions_prinpaid_column();
 }

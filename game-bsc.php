@@ -310,7 +310,8 @@ require_once GAME_BSC_PLUGIN_DIR . 'includes/acf-fields.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/templates.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/helpers/artifact-period.php';
 
-// REST API JSON response 
+// REST API JSON response — chỉ format response, không xử lý session.
+// Việc clear session khi 401 được xử lý tập trung tại hook rest_post_dispatch.
 function wg_json_response(int $resCode, $data, string $message = 'success', ?int $http_status = null) {
     $payload = [
         'resCode' => $resCode,
@@ -318,10 +319,34 @@ function wg_json_response(int $resCode, $data, string $message = 'success', ?int
         'message' => $message,
     ];
     $resp = new WP_REST_Response($payload);
-    // Nếu không set http_status riêng, dùng cùng mã với resCode (mặc định 200)
     $resp->set_status($http_status ?? $resCode);
     return $resp;
 }
+
+/**
+ * Force logout: Thu hồi session token game và xóa toàn bộ cookies liên quan.
+ * Được gọi tập trung từ rest_post_dispatch khi response là 401.
+ */
+function game_force_logout_cookies() {
+    $cookie_domain = defined('COOKIE_DOMAIN') ? COOKIE_DOMAIN : '';
+    $cookie_path   = defined('COOKIEPATH') ? COOKIEPATH : '/';
+    $host          = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+
+    // Revoke game token từ DB và xóa GAME_AUTH_COOKIE khỏi trình duyệt
+    if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
+        game_revoke_user_token($_COOKIE[GAME_AUTH_COOKIE]);
+    }
+
+    // Xóa access_token cookie trên nhiều phạm vi domain/path để đảm bảo sạch sẽ
+    foreach (['/', $cookie_path] as $path) {
+        setcookie('access_token', '', time() - 3600, $path, $cookie_domain);
+        if ($host) {
+            setcookie('access_token', '', time() - 3600, $path, $host);
+        }
+    }
+    unset($_COOKIE['access_token']);
+}
+
 // Lấy thời gian hiện tại theo múi giờ Asia/Ho_Chi_Minh
 function game_now($type = null)
 {
@@ -381,13 +406,14 @@ function save_game_user_to_db($user_info, $access_token = null) {
     $result_insert = $wpdb->insert(
         $table_name,
         [
-          'provider'         => $user_info['provider'],
-          'external_user_id' => $user_info['external_user_id'],
-          'name'             => $name,
-          'avatar_url'       => $user_info['avatar_url'],
-          'status'           => 1, // active
-          'created_at'       => game_now(),
-          'last_login_at'    => game_now(),
+          'provider'          => $user_info['provider'],
+          'external_user_id'  => $user_info['external_user_id'],
+          'name'              => $name,
+          'avatar_url'        => $user_info['avatar_url'],
+          'status'            => 1, // active
+          'created_at'        => game_now(),
+          'last_login_at'     => game_now(),
+          'access_token_hash' => $access_token ? md5($access_token) : null,
         ]
     );
 
@@ -453,8 +479,9 @@ function save_game_user_to_db($user_info, $access_token = null) {
     $result_update = $wpdb->update(
         $table_name,
         [
-          'name' => $name,
-          'last_login_at' => game_now(),
+          'name'              => $name,
+          'last_login_at'     => game_now(),
+          'access_token_hash' => $access_token ? md5($access_token) : null,
         ],
         [
           'id' => $existing_user->id,
@@ -629,14 +656,21 @@ function game_validate_user_token($token) {
   $user_table = $wpdb->prefix . 'game_users';
   $hash = hash('sha256', $token);
   $now = game_now();
-  $row = $wpdb->get_row($wpdb->prepare("SELECT t.user_id, u.provider, u.name, u.external_user_id, u.avatar_url FROM {$table} t JOIN {$user_table} u ON u.id = t.user_id WHERE t.token_hash = %s AND t.expires_at >= %s", $hash, $now));
+  // Piggyback access_token_hash vào JOIN sẵn có — không tốn thêm query
+  $row = $wpdb->get_row($wpdb->prepare(
+    "SELECT t.user_id, u.provider, u.name, u.external_user_id, u.avatar_url, u.access_token_hash
+     FROM {$table} t JOIN {$user_table} u ON u.id = t.user_id
+     WHERE t.token_hash = %s AND t.expires_at >= %s",
+    $hash, $now
+  ));
   if (!$row) return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
   return [
-    'id' => (int)$row->user_id,
-    'provider' => $row->provider,
+    'id'               => (int)$row->user_id,
+    'provider'         => $row->provider,
     'external_user_id' => $row->external_user_id,
-    'name' => $row->name,
-    'avatar_url' => $row->avatar_url ?: WG_GAME_DEFAULT_AVATAR_URL,
+    'name'             => $row->name,
+    'avatar_url'       => $row->avatar_url ?: WG_GAME_DEFAULT_AVATAR_URL,
+    'access_token_hash' => $row->access_token_hash, // dùng để detect multi-login
   ];
 }
 
@@ -902,33 +936,82 @@ function bsc_game_sync_afacctno(int $user_id, string $access_token): void
  */
 
 function game_sso_require_session() {
-
-   
-    // Code dev
-    // $user = [
-    //     'id'       => 1,
-    //     'provider'    => 'bsc',
-    //     'external_user_id'    => '123456',
-    //     'name'    => 'Triệu Ngọc Tài',
-    //     'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
-    // ];
-    // 5) Lưu SESSION và trả về
-    // $_SESSION['game_user']        = $user;
-    // $_SESSION['game_logged_in_at'] = time();
-    //   if (session_status() === PHP_SESSION_ACTIVE) {
-    //       session_write_close(); // nhả khóa ngay
-    //   }
-    // return $user;
-
-  // Kiểm tra token từ cookie
-  if (!empty($_COOKIE[GAME_AUTH_COOKIE])) {
-    $user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
-    if (!is_wp_error($user)) {
-      return $user;
-    }
+  // 1. Kiểm tra token từ cookie game
+  if (empty($_COOKIE[GAME_AUTH_COOKIE])) {
+    return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
   }
 
-  return new WP_Error('not_logged_in', 'User not logged in', ['status' => 401]);
+  $user = game_validate_user_token($_COOKIE[GAME_AUTH_COOKIE]);
+  if (is_wp_error($user)) {
+    return $user;
+  }
+
+  // 2. Kiểm tra token SSO (access_token)
+  if (empty($_COOKIE['access_token'])) {
+    // Không có access_token, xem như chưa đăng nhập sso
+    game_revoke_user_token($_COOKIE[GAME_AUTH_COOKIE]);
+    return new WP_Error('not_logged_in', 'SSO access token missing', ['status' => 401]);
+  }
+
+  $access_token = $_COOKIE['access_token'];
+
+  // 3. [MULTI-LOGIN DETECTION] So sánh hash token cookie vs hash lưu trong DB.
+  // Dữ liệu đã được piggyback sẵn từ JOIN trong game_validate_user_token — không tốn thêm query.
+  // Nếu user B đăng nhập cùng account, DB sẽ có hash mới của token B.
+  // User A gọi API tiếp: md5(tokenA) ≠ hash trong DB → kick ra ngay lập tức.
+  $stored_hash = $user['access_token_hash'] ?? null;
+  if ($stored_hash !== null && md5($access_token) !== $stored_hash) {
+    error_log('[SSO check] game_sso_require_session: access_token superseded by new login for user_id=' . $user['id']);
+    game_force_logout_cookies();
+    return new WP_Error('not_logged_in', 'Session superseded by new login', ['status' => 401]);
+  }
+
+  // 4. Kiểm tra SSO token có còn hợp lệ với server không (chống token hết hạn tự nhiên)
+  // Dùng transient 60s để tránh gọi HTTP liên tục
+  $transient_key = 'sso_token_checked_' . md5($access_token);
+
+  // 3. Kiểm tra cache transient trước để tránh gọi API liên tục
+  if (!get_transient($transient_key)) {
+    // Gọi API /trade/user/info để kiểm tra token SSO
+    $trading_server = (string)(get_option('game_bsc_trading_server') ?: '');
+    if (empty($trading_server)) {
+      error_log('[SSO check] game_sso_require_session: missing trading server URL');
+      return $user;
+    }
+
+    $trading_server = rtrim($trading_server, '/');
+    $api_url = $trading_server . '/trade/user/info';
+
+    $response = wp_remote_get($api_url, [
+      'headers' => [
+        'Authorization' => 'Bearer ' . $access_token,
+        'Content-Type'  => 'application/json',
+        'Accept'        => 'application/json',
+      ],
+      'timeout' => 5,
+    ]);
+
+    if (is_wp_error($response)) {
+      error_log('[SSO check] game_sso_require_session error: ' . $response->get_error_message());
+      // Lỗi kết nối mạng, tạm thời cho qua để tránh gián đoạn trải nghiệm người dùng
+      return $user;
+    }
+
+    $http_code = (int) wp_remote_retrieve_response_code($response);
+    if ($http_code !== 200) {
+      error_log('[SSO check] game_sso_require_session: SSO token invalid, HTTP ' . $http_code);
+
+      // Token SSO không hợp lệ / hết hạn → force logout toàn bộ session
+      game_force_logout_cookies();
+
+      return new WP_Error('not_logged_in', 'SSO session expired', ['status' => 401]);
+    }
+
+    // Token SSO hợp lệ -> Lưu cache transient trong 1 phút (60 giây) để phát hiện hết hạn nhanh
+    set_transient($transient_key, true, 60);
+  }
+
+  return $user;
 }
 
 // Hàm tính thời gian diễn ra game
@@ -1206,6 +1289,7 @@ add_filter('rest_pre_dispatch', function ($result, $server, $request) {
 	
 	return $result;
 }, 10, 3);
+
 
 // Hàm lưu hoàn thành nhiệm vụ đăng nhập hàng ngày
 function save_user_daily_login_mission() {
