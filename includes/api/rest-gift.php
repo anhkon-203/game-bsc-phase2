@@ -833,8 +833,10 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 		$args = [
 			'post_type'      => 'game_vouchers',
 			'post_status'    => 'publish',
-			'orderby'        => 'post_date',
-			'order'          => 'DESC',
+			'orderby'        => [
+				'post_date' => 'DESC',
+				'ID'        => 'DESC',
+			],
 			'meta_query'     => [
 				[
 					'key'     => 'is_active',

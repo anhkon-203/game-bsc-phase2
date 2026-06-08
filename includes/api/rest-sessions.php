@@ -1734,7 +1734,7 @@ function game_api_session_result(WP_REST_Request $r)
             'correct_count' => (int)$sess->correct_count,
             'total_points' => $total_points,
             'total_pieces' => $total_pieces,
-            'current_stage' => $current_stage['day_index'],
+            'current_stage' => (int)$sess->current_stage,
             'status' => (int)$sess->current_stage_status,
         ],
         'artifact_won' => $artifact_won ? [
