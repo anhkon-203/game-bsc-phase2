@@ -429,7 +429,8 @@ if ($user_id > 0) {
                                 <div class="box-achievement border border-solid border-[#EAECF0] rounded-xl p-6 flex item-center flex-wrap gap-3">
                                     <?php foreach ($achievements as $achievement): ?>
                                         <div class="flex flex-col items-center gap-2">
-                                            <img class="w-12 h-12" src="<?php echo esc_url($achievement['icon_url']); ?>" alt="">
+                                            <img class="w-12 h-12" src="<?php echo esc_url($achievement['icon_url']); ?>" alt="" title="<?php echo esc_attr($achievement['description'] ?? ''); ?>"
+                                                 style="<?php echo empty($achievement['earned']) ? 'filter: grayscale(100%); opacity: 0.4;' : ''; ?>">
                                             <span class="text-[#4A5568] text-[14px] font-medium"><?php echo esc_html($achievement['name']); ?></span>
                                         </div>
                                     <?php endforeach; ?>

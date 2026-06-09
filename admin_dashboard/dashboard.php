@@ -720,6 +720,11 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                     <label for="pham-loai" class="tab-item" data-tab="pham-loai">Phân loại</label>
                 </div>
 
+                <!-- Spinner loading -->
+                <div id="award-loading" style="display:none; text-align:center; padding:20px;">
+                    <p>Đang tải dữ liệu...</p>
+                </div>
+
                 <!-- CHARTS -->
                 <div id="chart-ti-le-container" class="chart-body mt-6"></div>
                 <div id="chart-pham-loai-container" class="chart-body mt-6 hidden"></div>
@@ -758,6 +763,8 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                             dataType: 'json',
                             beforeSend: function () {
                                 console.log('Loading award status filter...');
+                                $('#award-loading').show();
+                                $('#chart-ti-le-container, #chart-pham-loai-container').css('opacity', '0.5');
                             },
                             success: function (response) {
                                 if (response.success) {
@@ -777,6 +784,10 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                             error: function (xhr, status, error) {
                                 console.error('AJAX Request Error:', status, error);
                                 alert('Lỗi kết nối: ' + error);
+                            },
+                            complete: function () {
+                                $('#award-loading').hide();
+                                $('#chart-ti-le-container, #chart-pham-loai-container').css('opacity', '1');
                             }
                         });
                     }
@@ -1113,6 +1124,11 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
             </div>
 
             <div class="list-content hieu-suat">
+                <!-- Spinner loading -->
+                <div id="performance-loading" style="display:none; text-align:center; padding:20px;">
+                    <p>Đang tải dữ liệu...</p>
+                </div>
+
                 <!-- TAB: Thống kê nhanh -->
                 <div id="thong-ke-nhanh" class="content-item grid grid-cols-3 gap-6">
                     <!-- Card 1: Lượt truy cập -->
@@ -1163,7 +1179,7 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                         <h4 class="text-[18px] text-[#31333F] font-medium">Lượt tham gia</h4>
                         <div class="flex flex-col gap-4">
                         <span class="text-[40px] text-[#31333F] font-medium"
-                              id="participation-total"><?php echo $player_stats['quick_stats']['visits']['total']; ?>/<?php echo $player_stats['quick_stats']['participation']['total']; ?></span>
+                              id="participation-total"><?php echo $player_stats['quick_stats']['participation']['total']; ?>/<?php echo $player_stats['quick_stats']['visits']['total']; ?></span>
                         </div>
                         <div class="w-full flex gap-2" id="participation-bars">
                             <?php foreach ($player_stats['quick_stats']['participation']['breakdown'] as $item): ?>
@@ -1411,7 +1427,7 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                     const barsContainer = document.getElementById(`${type}-bars`);
 
                     if (type === 'participation') {
-                        total.textContent = `${quickStats.visits.total}/${data.total}`;
+                        total.textContent = `${data.total}/${quickStats.visits.total}`;
                     } else if (type === 'completed') {
                         total.textContent = `${data.total}/${quickStats.participation.total}`;
                     } else {
@@ -1450,6 +1466,11 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                 }
 
                 async function fetchDashboardStats(filter, fromDate = '', toDate = '') {
+                    const loading = document.getElementById('performance-loading');
+                    const content = document.querySelector('.list-content.hieu-suat');
+                    if (loading) loading.style.display = 'block';
+                    if (content) content.style.opacity = '0.5';
+
                     try {
                         const formData = new FormData();
                         formData.append('action', 'game_bsc_dashboard_stats');
@@ -1486,6 +1507,9 @@ $dashboard_filter_default_to_iso = $dashboard_filter_default_to_obj->format('Y-m
                         }
                     } catch (error) {
                         console.error('Fetch Error:', error);
+                    } finally {
+                        if (loading) loading.style.display = 'none';
+                        if (content) content.style.opacity = '1';
                     }
                 }
 

@@ -2677,7 +2677,7 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 				"SELECT up.id as user_piece_id, up.piece_id, up.qty, p.piece_code
 				 FROM {$prefix}user_pieces up
 				 INNER JOIN {$prefix}pieces p ON up.piece_id = p.id
-				 WHERE up.user_id = %d AND up.artifact_id = %d
+				 WHERE up.user_id = %d AND up.artifact_id = %d AND up.qty >= 1
 				 ORDER BY p.piece_code ASC",
 				$user_id,
 				$artifact_id
@@ -2686,17 +2686,7 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 		);
 		
 		if (count($user_pieces) < 4) {
-			return wg_json_response(422, [], __('Hiện tại bạn chưa có đủ 4 mảnh để đổi hiện vật này.', WG_GAME_PLUGIN_TEXTDOMAIN));
-		}
-		
-		// Kiểm tra mỗi mảnh phải có qty >= 1
-		foreach ($user_pieces as $piece) {
-			if ((int)$piece['qty'] < 1) {
-				return wg_json_response(422, [], sprintf(
-					__('Bạn không có đủ mảnh %s.', WG_GAME_PLUGIN_TEXTDOMAIN),
-					$piece['piece_code']
-				));
-			}
+			return wg_json_response(422, [], __('Hiện tại bạn chưa đủ 4 mảnh ghép để đổi quà hiện vật này.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
 		
 		// ===== 4. KIỂM TRA SỐ LẦN ĐÃ ĐỔI =====
@@ -3662,11 +3652,10 @@ function game_get_user_pieces(WP_REST_Request $request) {
 			$times_redeemed = $wpdb->get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(id) FROM {$prefix}user_artifact_redemptions
-					 WHERE user_id = %d AND artifact_id = %d",
-					$user_id,
+					 WHERE artifact_id = %d",
 					$artifact_id
-					)
-				);
+				)
+			);
 			$times_redeemed = (int)$times_redeemed;
 			$max_redemptions = (int)$artifact['max_redemptions'];
 			$remaining_qty = max(0, $max_redemptions - $times_redeemed);
@@ -3804,8 +3793,7 @@ function game_get_user_pieces(WP_REST_Request $request) {
 			$times_redeemed = $wpdb->get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(id) FROM {$prefix}user_artifact_redemptions
-					 WHERE user_id = %d AND artifact_id = %d",
-					$user_id,
+					 WHERE artifact_id = %d",
 					$artifact_id
 				)
 			);

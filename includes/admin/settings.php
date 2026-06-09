@@ -492,21 +492,18 @@ function game_bsc_settings_page() {
                         <th><label for="gotit_api_key"><?php _e('Got It API Key', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
                         <td>
                             <input type="text" name="gotit_api_key" id="gotit_api_key" value="<?php echo esc_attr(get_option('game_bsc_gotit_api_key', '')); ?>" style="width: 60%;" autocomplete="off">
-                            <p class="description">Header sử dụng: X-GI-Authorization</p>
                         </td>
                     </tr>
                     <tr>
                         <th><label for="gotit_webhook_secret"><?php _e('Got It Webhook Secret Key', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
                         <td>
                             <input type="text" name="gotit_webhook_secret" id="gotit_webhook_secret" value="<?php echo esc_attr(get_option('game_bsc_gotit_webhook_secret', '')); ?>" style="width: 60%;" autocomplete="off">
-                            <p class="description">Secret key (32 ký tự) dùng để ký và xác thực webhook từ Got It.</p>
                         </td>
                     </tr>
                     <tr>
                         <th><label for="trading_server"><?php _e('BSC Trading Server URL', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
                         <td>
                             <input type="text" name="trading_server" id="trading_server" value="<?php echo esc_attr(get_option('game_bsc_trading_server', '')); ?>" style="width: 60%;">
-                            <p class="description">URL của BSC Trading API server (VD: https://tradeapi-krxtduat.bsc.com.vn). Dùng để lấy tiểu khoản của user.</p>
                         </td>
                     </tr>
                 </table>
