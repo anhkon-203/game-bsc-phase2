@@ -63,10 +63,15 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 			uvr.start_date,
 			uvr.gotit_expiry_date,
 			p.post_title as voucher_name,
-			'voucher' as gift_type
+			'voucher' as gift_type,
+			gt.gotit_expiry_date as gotit_txn_expiry,
+			gt.gotit_status,
+			gt.gotit_state_name,
+			gt.gotit_status_changed_at
 		FROM {$prefix}user_voucher_redemptions uvr
 		INNER JOIN {$prefix}users u ON uvr.user_id = u.id
 		INNER JOIN {$wpdb->posts} p ON uvr.voucher_post_id = p.ID
+		LEFT JOIN {$prefix}gotit_transactions gt ON gt.redemption_id = uvr.id
 		{$voucher_where_sql}
 		ORDER BY uvr.redeemed_at DESC";
 		
@@ -234,6 +239,44 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 			$formatted['validity_display'] = $validity_display;
 			$formatted['valid_from'] = $valid_from;
 			$formatted['valid_to'] = $valid_to;
+
+			// ── 3 cột bổ sung cho voucher bên thứ 3 (GotIt) ──
+
+			// 1. Ngày sử dụng voucher (chỉ có giá trị khi trạng thái là Used)
+			$gotit_state_name = strtoupper(trim((string) ($redemption['gotit_state_name'] ?? '')));
+			$gotit_status_int = (int) ($redemption['gotit_status'] ?? -1);
+			$gotit_changed_at = $redemption['gotit_status_changed_at'] ?? '';
+
+			if ($gotit_state_name === 'USED' && !empty($gotit_changed_at)) {
+				$formatted['gotit_used_date_display'] = date('d/m/Y H:i:s', strtotime($gotit_changed_at));
+			} else {
+				$formatted['gotit_used_date_display'] = '';
+			}
+
+			// 2. Danh mục categories (taxonomy game_voucher_category)
+			$category_terms = wp_get_post_terms($voucher_id, 'game_voucher_category', ['fields' => 'names']);
+			$formatted['gotit_categories'] = (!is_wp_error($category_terms) && !empty($category_terms))
+				? implode(', ', array_map('sanitize_text_field', $category_terms))
+				: '';
+
+			// 3. Trạng thái voucher đã sử dụng hay chưa
+			if ($gotit_state_name === 'USED') {
+				$formatted['gotit_used_status']       = 'used';
+				$formatted['gotit_used_status_label'] = 'Đã sử dụng';
+			} elseif ($gotit_state_name === 'EXPIRED') {
+				$formatted['gotit_used_status']       = 'expired';
+				$formatted['gotit_used_status_label'] = 'Hết hạn';
+			} elseif ($gotit_state_name !== '' && !in_array($gotit_state_name, ['ISSUED', 'PURCHASED'], true)) {
+				$formatted['gotit_used_status']       = 'other';
+				$formatted['gotit_used_status_label'] = sanitize_text_field($redemption['gotit_state_name']);
+			} elseif ($gotit_status_int === -1) {
+				// Không có bản ghi gotit_transactions (voucher BSC)
+				$formatted['gotit_used_status']       = '';
+				$formatted['gotit_used_status_label'] = '';
+			} else {
+				$formatted['gotit_used_status']       = 'issued';
+				$formatted['gotit_used_status_label'] = 'Chưa sử dụng';
+			}
 		} else {
 			// Artifact
 			$artifact_id = (int)$redemption['artifact_id'];

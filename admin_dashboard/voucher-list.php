@@ -192,6 +192,9 @@ $current_time = $now->format('H:i:s');
 								<th class="px-6 py-3 text-left">Số điểm cần đổi voucher</th>
 								<th class="px-6 py-3 text-left">DESCRIPTION</th>
 <!--								<th class="px-6 py-3 text-left">Thông tin user</th>-->
+								<th class="px-6 py-3 text-left">Ngày sử dụng voucher</th>
+								<th class="px-6 py-3 text-left">Danh mục</th>
+								<th class="px-6 py-3 text-left">Trạng thái sử dụng</th>
 								<th class="px-6 py-3 text-left">Loại voucher</th>
 								<th class="px-6 py-3 text-left">Loại quà</th>
 								<th class="px-6 py-3 text-left"></th>
@@ -254,7 +257,45 @@ $current_time = $now->format('H:i:s');
 <!---->
 <!--											</div>-->
 <!--										</td>-->
-										
+
+										<!-- Ngày sử dụng voucher -->
+										<td class="px-6 py-3">
+											<?php if ($redemption['gift_type'] === 'voucher' && !empty($redemption['gotit_used_date_display'])): ?>
+												<?php echo esc_html($redemption['gotit_used_date_display']); ?>
+											<?php else: ?>
+												<span class="text-gray-400">N/A</span>
+											<?php endif; ?>
+										</td>
+
+										<!-- Danh mục categories -->
+										<td class="px-6 py-3">
+											<?php if ($redemption['gift_type'] === 'voucher' && !empty($redemption['gotit_categories'])): ?>
+												<span class="text-sm text-gray-700"><?php echo esc_html($redemption['gotit_categories']); ?></span>
+											<?php else: ?>
+												<span class="text-gray-400">N/A</span>
+											<?php endif; ?>
+										</td>
+
+										<!-- Trạng thái sử dụng -->
+										<td class="px-6 py-3">
+											<?php if ($redemption['gift_type'] === 'voucher' && !empty($redemption['gotit_used_status_label'])): ?>
+												<?php
+												$status_colors = [
+													'used'    => ['bg' => '#fef3c7', 'color' => '#92400e'],
+													'expired' => ['bg' => '#fee2e2', 'color' => '#991b1b'],
+													'issued'  => ['bg' => '#d1fae5', 'color' => '#065f46'],
+													'other'   => ['bg' => '#f3f4f6', 'color' => '#374151'],
+												];
+												$sc = $status_colors[$redemption['gotit_used_status']] ?? $status_colors['other'];
+												?>
+												<span style="padding: 4px 8px; border-radius: 4px; background-color: <?php echo esc_attr($sc['bg']); ?>; color: <?php echo esc_attr($sc['color']); ?>;">
+													<?php echo esc_html($redemption['gotit_used_status_label']); ?>
+												</span>
+											<?php else: ?>
+												<span class="text-gray-400">N/A</span>
+											<?php endif; ?>
+										</td>
+
 										<!-- Loại voucher -->
 										<td class="px-6 py-3">
 											<?php if ($redemption['gift_type'] === 'voucher'): ?>
@@ -300,7 +341,7 @@ $current_time = $now->format('H:i:s');
 								<?php endforeach; ?>
 							<?php else: ?>
 								<tr>
-									<td colspan="12" class="px-6 py-8 text-center text-gray-500">
+									<td colspan="14" class="px-6 py-8 text-center text-gray-500">
 										Không có dữ liệu để hiển thị
 									</td>
 								</tr>
@@ -373,6 +414,9 @@ function exportVoucherListToCSV() {
 		'POINTS_REQUIRED',
 		'DESCR',
 		'VOUCHER_TYPE',
+		'DANH_MUC',
+		'TRANG_THAI_SU_DUNG',
+		'NGAY_SU_DUNG',
 	];
 
 	// Build CSV content
@@ -403,6 +447,9 @@ function exportVoucherListToCSV() {
 			pointsCost,                 // POINTS_REQUIRED
 			voucherName,                // DESCR
 			voucherType,                // VOUCHER_TYPE
+			row.gotit_categories || '', // DANH_MUC (chỉ có với voucher bên thứ 3)
+			row.gotit_used_status_label || '', // TRANG_THAI_SU_DUNG (chỉ có với voucher bên thứ 3)
+			row.gotit_used_date_display || '', // NGAY_SU_DUNG (chỉ có với voucher bên thứ 3)
 			// row.gift_type_label         // Loại quà
 		];
 

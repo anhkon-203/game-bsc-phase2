@@ -146,7 +146,49 @@ if ($gift_type === 'voucher') {
 			'prinpaid'                 => $prinpaid,
 			'voucheramt'               => $voucheramt,
 			'reamt'                    => $reamt,
+			// GotIt transaction (chỉ có giá trị khi voucher_type !== 'BSC')
+			'gotit_txn'                => null,
+			// Categories từ taxonomy
+			'gotit_categories'         => [],
 		];
+
+		// Lấy categories từ taxonomy game_voucher_category
+		$cat_terms = wp_get_post_terms($voucher_id, 'game_voucher_category', ['fields' => 'names']);
+		if (!is_wp_error($cat_terms) && !empty($cat_terms)) {
+			$gift_data['gotit_categories'] = array_map('sanitize_text_field', $cat_terms);
+		}
+
+		// Lấy thông tin GotIt transaction nếu là voucher bên thứ 3
+		if ($voucher_type !== 'BSC') {
+			$gotit_txn = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT
+						transaction_ref_id,
+						gotit_order_name,
+						gotit_product_id,
+						gotit_product_price_id,
+						gotit_voucher_link,
+						gotit_voucher_code,
+						gotit_voucher_image,
+						gotit_serial,
+						gotit_expiry_date,
+						gotit_status,
+						gotit_state_name,
+						gotit_status_changed_at,
+						created_at,
+						updated_at
+					FROM {$prefix}gotit_transactions
+					WHERE redemption_id = %d
+					ORDER BY id DESC
+					LIMIT 1",
+					(int) $redemption['id']
+				),
+				ARRAY_A
+			);
+			if ($gotit_txn) {
+				$gift_data['gotit_txn'] = $gotit_txn;
+			}
+		}
 	}
 	
 } else if ($gift_type === 'artifact') {
@@ -469,6 +511,122 @@ if (!$gift_data) {
 							<div class="mt-6 pt-6 border-t border-gray-200">
 								<h5 class="font-semibold text-[#31333F] mb-3">Thông tin sử dụng (BSC Trading):</h5>
 								<div class="text-sm text-gray-400 italic">Chưa có dữ liệu từ BSC Trading API (voucheramt chưa được cấu hình)</div>
+							</div>
+						<?php endif; ?>
+
+						<?php if ($gift_data['voucher_type'] !== 'BSC'): ?>
+							<!-- Section GotIt Transaction -->
+							<div class="mt-6 pt-6 border-t border-gray-200">
+								<h5 class="font-semibold text-[#31333F] mb-4">Thông tin GotIt</h5>
+
+								<?php if (!empty($gift_data['gotit_categories'])): ?>
+									<div class="info-row">
+										<div class="info-label">Danh mục:</div>
+										<div class="info-value flex flex-wrap gap-1">
+											<?php foreach ($gift_data['gotit_categories'] as $cat): ?>
+												<span style="padding: 2px 10px; border-radius: 12px; font-size: 12px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;">
+													<?php echo esc_html($cat); ?>
+												</span>
+											<?php endforeach; ?>
+										</div>
+									</div>
+								<?php endif; ?>
+
+								<?php if (!empty($gift_data['gotit_txn'])): ?>
+									<?php $txn = $gift_data['gotit_txn']; ?>
+									<?php
+									$state_upper = strtoupper(trim((string) ($txn['gotit_state_name'] ?? '')));
+									$state_colors = [
+										'USED'      => ['bg' => '#fef3c7', 'color' => '#92400e'],
+										'EXPIRED'   => ['bg' => '#fee2e2', 'color' => '#991b1b'],
+										'PURCHASED' => ['bg' => '#d1fae5', 'color' => '#065f46'],
+										'ISSUED'    => ['bg' => '#d1fae5', 'color' => '#065f46'],
+									];
+									$sc = $state_colors[$state_upper] ?? ['bg' => '#f3f4f6', 'color' => '#374151'];
+									$state_label_map = [
+										'USED'      => 'Đã sử dụng',
+										'EXPIRED'   => 'Hết hạn',
+										'PURCHASED' => 'Chưa sử dụng',
+										'ISSUED'    => 'Chưa sử dụng',
+									];
+									$state_label = $state_label_map[$state_upper] ?? esc_html($txn['gotit_state_name']);
+									?>
+
+									<div class="info-row">
+										<div class="info-label">Trạng thái:</div>
+										<div class="info-value">
+											<span style="padding: 4px 10px; border-radius: 4px; background-color: <?php echo esc_attr($sc['bg']); ?>; color: <?php echo esc_attr($sc['color']); ?>;">
+												<?php echo esc_html($state_label); ?>
+											</span>
+										</div>
+									</div>
+
+									<?php if ($state_upper === 'USED' && !empty($txn['gotit_status_changed_at'])): ?>
+										<div class="info-row">
+											<div class="info-label">Ngày sử dụng:</div>
+											<div class="info-value font-medium text-amber-700">
+												<?php echo esc_html(date('d/m/Y H:i:s', strtotime($txn['gotit_status_changed_at']))); ?>
+											</div>
+										</div>
+									<?php endif; ?>
+
+									<div class="info-row">
+										<div class="info-label">Mã voucher GotIt:</div>
+										<div class="info-value font-medium"><?php echo esc_html($txn['gotit_voucher_code'] ?? 'N/A'); ?></div>
+									</div>
+
+									<?php if (!empty($txn['gotit_serial'])): ?>
+										<div class="info-row">
+											<div class="info-label">Serial:</div>
+											<div class="info-value"><?php echo esc_html($txn['gotit_serial']); ?></div>
+										</div>
+									<?php endif; ?>
+
+									<?php if (!empty($txn['gotit_voucher_link'])): ?>
+										<div class="info-row">
+											<div class="info-label">Link voucher:</div>
+											<div class="info-value">
+												<a href="<?php echo esc_url($txn['gotit_voucher_link']); ?>" target="_blank" class="text-blue-600 hover:underline break-all">
+													<?php echo esc_html($txn['gotit_voucher_link']); ?>
+												</a>
+											</div>
+										</div>
+									<?php endif; ?>
+
+									<?php if (!empty($txn['gotit_expiry_date'])): ?>
+										<div class="info-row">
+											<div class="info-label">Ngày hết hạn voucher:</div>
+											<div class="info-value"><?php echo esc_html(date('d/m/Y', strtotime($txn['gotit_expiry_date']))); ?></div>
+										</div>
+									<?php endif; ?>
+
+									<div class="info-row">
+										<div class="info-label">Transaction Ref ID:</div>
+										<div class="info-value text-xs text-gray-500 break-all"><?php echo esc_html($txn['transaction_ref_id'] ?? ''); ?></div>
+									</div>
+
+									<div class="info-row">
+										<div class="info-label">Product ID / Price ID:</div>
+										<div class="info-value"><?php echo esc_html($txn['gotit_product_id']); ?> / <?php echo esc_html($txn['gotit_product_price_id']); ?></div>
+									</div>
+
+									<div class="info-row">
+										<div class="info-label">Phát hành lúc:</div>
+										<div class="info-value"><?php echo esc_html(date('d/m/Y H:i:s', strtotime($txn['created_at']))); ?></div>
+									</div>
+
+									<?php if (!empty($txn['gotit_voucher_image'])): ?>
+										<div class="info-row">
+											<div class="info-label">Hình ảnh voucher:</div>
+											<div class="info-value">
+												<img src="<?php echo esc_url($txn['gotit_voucher_image']); ?>" alt="Voucher Image" style="max-width: 160px; border-radius: 6px; border: 1px solid #e5e7eb;">
+											</div>
+										</div>
+									<?php endif; ?>
+
+								<?php else: ?>
+									<div class="text-sm text-gray-400 italic">Chưa có dữ liệu giao dịch GotIt cho voucher này.</div>
+								<?php endif; ?>
 							</div>
 						<?php endif; ?>
 						
