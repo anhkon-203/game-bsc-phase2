@@ -1,4 +1,7 @@
-assets/
+assets/front-end/
+assets/images/
+assets/samples/
+assets/nextjs-embedded-app/app
 out/
 docs/
 .gitignore
