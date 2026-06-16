@@ -9,9 +9,10 @@
  * @param string $search Tìm kiếm theo tên user hoặc mã voucher
  * @param string $gift_type Lọc theo loại quà: 'all', 'voucher', 'artifact'
  * @param string $voucher_type Lọc theo loại voucher: 'all', 'BSC', 'third_party'
+ * @param string $gotit_used_status Lọc theo trạng thái sử dụng: 'all', 'issued', 'used', 'expired', 'other'
  * @return array Mảng chứa danh sách và phân trang
  */
-function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_from = '', $date_to = '', $search = '', $gift_type = 'all', $voucher_type = 'all')
+function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_from = '', $date_to = '', $search = '', $gift_type = 'all', $voucher_type = 'all', $gotit_used_status = 'all')
 {
 	global $wpdb;
 	$prefix = $wpdb->prefix . 'game_';
@@ -155,6 +156,33 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 				}
 			}
 			// Bỏ qua artifact khi filter theo voucher_type
+		}
+		$all_redemptions = $filtered_redemptions;
+	}
+	
+	// ===== LỌC THEO TRẠNG THÁI SỬ DỤNG VOUCHER BÊN THỨ 3 =====
+	if ($voucher_type === 'third_party' && $gotit_used_status !== 'all') {
+		$filtered_redemptions = [];
+		foreach ($all_redemptions as $redemption) {
+			$gotit_state_name = strtoupper(trim((string) ($redemption['gotit_state_name'] ?? '')));
+			$gotit_status_int = isset($redemption['gotit_status']) ? (int) $redemption['gotit_status'] : -1;
+			
+			$status = '';
+			if ($gotit_state_name === 'USED') {
+				$status = 'used';
+			} elseif ($gotit_state_name === 'EXPIRED') {
+				$status = 'expired';
+			} elseif ($gotit_state_name !== '' && !in_array($gotit_state_name, ['ISSUED', 'PURCHASED'], true)) {
+				$status = 'other';
+			} elseif ($gotit_status_int === -1) {
+				$status = '';
+			} else {
+				$status = 'issued';
+			}
+
+			if ($status === $gotit_used_status) {
+				$filtered_redemptions[] = $redemption;
+			}
 		}
 		$all_redemptions = $filtered_redemptions;
 	}

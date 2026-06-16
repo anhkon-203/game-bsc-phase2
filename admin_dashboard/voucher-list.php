@@ -89,9 +89,14 @@ $current_time = $now->format('H:i:s');
 	$search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
 	$gift_type = isset($_GET['gift_type']) ? sanitize_text_field($_GET['gift_type']) : 'all';
 	$voucher_type = isset($_GET['voucher_type']) ? sanitize_text_field($_GET['voucher_type']) : 'all';
+	$gotit_used_status = isset($_GET['gotit_used_status']) ? sanitize_text_field($_GET['gotit_used_status']) : 'all';
+
+	if ($voucher_type !== 'third_party') {
+		$gotit_used_status = 'all';
+	}
 
 	// Gọi hàm lấy dữ liệu
-	$result = game_bsc_get_voucher_redemptions_data($paged, 20, $date_from, $date_to, $search, $gift_type, $voucher_type);
+	$result = game_bsc_get_voucher_redemptions_data($paged, 20, $date_from, $date_to, $search, $gift_type, $voucher_type, $gotit_used_status);
 
 	$redemptions = [];
 	$total_items = 0;
@@ -105,7 +110,7 @@ $current_time = $now->format('H:i:s');
 	}
 
 	$export_redemptions = [];
-	$export_result = game_bsc_get_voucher_redemptions_data(1, -1, $date_from, $date_to, $search, $gift_type, $voucher_type);
+	$export_result = game_bsc_get_voucher_redemptions_data(1, -1, $date_from, $date_to, $search, $gift_type, $voucher_type, $gotit_used_status);
 	if ($export_result['status'] === 'success') {
 		$export_redemptions = $export_result['data'];
 	}
@@ -116,24 +121,38 @@ $current_time = $now->format('H:i:s');
 			<div class="wrapper p-6 bg-white rounded-xl flex flex-col gap-6">
 				<h2 class="text-2xl font-medium text-[#31333F]">Danh sách quà đã đổi</h2>
 				<div class="flex flex-col wrapper-table ">
-					<div class="flex justify-between items-center bg-white pl-4">
+					<div class="flex flex-col lg:flex-row lg:justify-between lg:items-center bg-white pl-4 pr-4 gap-4 py-2">
 						<!-- Hiển thị tổng số quà đã đổi -->
 						<p class="text-[#4D7CFF] text-sm font-medium cus-bg"><?php echo number_format($total_items); ?> quà đã đổi</p>
 						
 						<!-- Filter Form -->
-						<div class="list-filter-in-table py-3 px-4 flex gap-4 items-center">
-							<form method="GET" id="voucherFilterForm" style="display: flex; gap: 15px; align-items: center;">
+						<div class="list-filter-in-table py-3 px-4 w-full lg:w-auto">
+							<form method="GET" id="voucherFilterForm" class="flex flex-wrap items-center gap-3 md:gap-4 justify-end w-full">
 								<!-- Hidden input để giữ các tham số khác -->
 								<input type="hidden" name="page" value="<?php echo esc_attr($_GET['page'] ?? 'dashboard-layout'); ?>">
 								<input type="hidden" name="sub" value="<?php echo esc_attr($_GET['sub'] ?? 'voucher-list'); ?>">
 								<input type="hidden" name="paged" value="1">
 								
-								<!-- Filter Loại quà -->
-								<select name="gift_type" class="!py-[11px] !px-3 min-w-[148px] rounded-md border border-[#C9CCD2]" onchange="document.getElementById('voucherFilterForm').submit()">
-									<option value="all" <?php selected($gift_type, 'all'); ?>>Tất cả loại quà</option>
-									<option value="voucher" <?php selected($gift_type, 'voucher'); ?>>Voucher</option>
-									<option value="artifact" <?php selected($gift_type, 'artifact'); ?>>Hiện vật</option>
-								</select>
+								<?php if ($voucher_type === 'third_party'): ?>
+									<!-- Ẩn loại quà, mặc định là voucher khi lọc bên thứ 3 -->
+									<input type="hidden" name="gift_type" value="voucher">
+									
+									<!-- Filter Trạng thái sử dụng cho voucher bên thứ 3 -->
+									<select name="gotit_used_status" class="!py-[11px] !px-3 min-w-[152px] rounded-md border border-[#C9CCD2]" onchange="document.getElementById('voucherFilterForm').submit()">
+										<option value="all" <?php selected($gotit_used_status, 'all'); ?>>Tất cả trạng thái sử dụng</option>
+										<option value="issued" <?php selected($gotit_used_status, 'issued'); ?>>Chưa sử dụng</option>
+										<option value="used" <?php selected($gotit_used_status, 'used'); ?>>Đã sử dụng</option>
+										<option value="expired" <?php selected($gotit_used_status, 'expired'); ?>>Hết hạn</option>
+										<option value="other" <?php selected($gotit_used_status, 'other'); ?>>Trạng thái khác</option>
+									</select>
+								<?php else: ?>
+									<!-- Filter Loại quà -->
+									<select name="gift_type" class="!py-[11px] !px-3 min-w-[148px] rounded-md border border-[#C9CCD2]" onchange="document.getElementById('voucherFilterForm').submit()">
+										<option value="all" <?php selected($gift_type, 'all'); ?>>Tất cả loại quà</option>
+										<option value="voucher" <?php selected($gift_type, 'voucher'); ?>>Voucher</option>
+										<option value="artifact" <?php selected($gift_type, 'artifact'); ?>>Hiện vật</option>
+									</select>
+								<?php endif; ?>
 
 								<!-- Filter Loại voucher -->
 								<select name="voucher_type" class="!py-[11px] !px-3 min-w-[152px] rounded-md border border-[#C9CCD2]" onchange="document.getElementById('voucherFilterForm').submit()">
@@ -398,11 +417,14 @@ $current_time = $now->format('H:i:s');
 function exportVoucherListToCSV() {
 	// Get all data (unpaginated)
 	const data = <?php echo json_encode($export_redemptions); ?>;
+	const currentVoucherType = <?php echo json_encode($voucher_type); ?>;
 
 	if (!data || data.length === 0) {
 		alert('Không có dữ liệu để xuất!');
 		return;
 	}
+
+	const isThirdParty = currentVoucherType === 'third_party';
 
 	// CSV Header
 	const headers = [
@@ -414,9 +436,7 @@ function exportVoucherListToCSV() {
 		'POINTS_REQUIRED',
 		'DESCR',
 		'VOUCHER_TYPE',
-		'DANH_MUC',
-		'TRANG_THAI_SU_DUNG',
-		'NGAY_SU_DUNG',
+		...(isThirdParty ? ['CATEGORY', 'USAGE_STATUS', 'USED_DATE'] : []),
 	];
 
 	// Build CSV content
@@ -437,6 +457,17 @@ function exportVoucherListToCSV() {
 		const formattedAfacctno = row.afacctno ? `="${row.afacctno}"` : '';
 		const formattedVoucherCode = voucherCode ? `="${voucherCode}"` : '';
 
+		let usageStatusEng = '';
+		if (isThirdParty) {
+			const statusMap = {
+				'used': 'Used',
+				'expired': 'Expired',
+				'issued': 'Unused',
+				'other': row.gotit_used_status_label || 'Other'
+			};
+			usageStatusEng = statusMap[row.gotit_used_status] || '';
+		}
+
 		const rowData = [
 			// row.stt,                    // STT
 			row.external_user_id,       // CUSTODYCD
@@ -447,9 +478,11 @@ function exportVoucherListToCSV() {
 			pointsCost,                 // POINTS_REQUIRED
 			voucherName,                // DESCR
 			voucherType,                // VOUCHER_TYPE
-			row.gotit_categories || '', // DANH_MUC (chỉ có với voucher bên thứ 3)
-			row.gotit_used_status_label || '', // TRANG_THAI_SU_DUNG (chỉ có với voucher bên thứ 3)
-			row.gotit_used_date_display || '', // NGAY_SU_DUNG (chỉ có với voucher bên thứ 3)
+			...(isThirdParty ? [
+				row.gotit_categories || '',
+				usageStatusEng,
+				row.gotit_used_date_display || '',
+			] : []),
 			// row.gift_type_label         // Loại quà
 		];
 
