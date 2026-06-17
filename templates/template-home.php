@@ -4,7 +4,7 @@
     save_user_daily_login_mission();
     save_user_badges();
 
-$templates_dir = GAME_BSC_PLUGIN_DIR . 'assets/nextjs-embedded-app/templates/';
+$templates_dir = GAME_BSC_PLUGIN_DIR . 'nextjs-embedded-app/templates/';
 
 if ( wp_is_mobile() ) {
     $template_file = $templates_dir . 'page-nextjs-duong-dua-chung-si__FULL.php';
