@@ -258,6 +258,10 @@ function game_bsc_get_voucher_redemptions_data($page = 1, $per_page = 20, $date_
 			$formatted['voucher_name'] = sanitize_text_field($redemption['voucher_name']);
 			$formatted['voucher_type'] = $voucher_type;
 			$formatted['voucher_type_label'] = ($voucher_type === 'BSC') ? 'Voucher tại BSC' : 'Voucher bên thứ 3';
+			// Brand: BSC voucher mặc định "BSC", third party lấy từ ACF field voucher_brand_name
+			$formatted['brand'] = $is_bsc_voucher
+				? 'BSC'
+				: sanitize_text_field((string) (get_field('voucher_brand_name', $voucher_id) ?? ''));
 			if ($is_bsc_voucher) {
 				$formatted['voucher_value'] = (float) (get_field('voucheramt', $voucher_id) ?? 0);
 			} else {

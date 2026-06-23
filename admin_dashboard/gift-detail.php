@@ -130,6 +130,7 @@ if ($gift_type === 'voucher') {
 			'voucher_type'             => $voucher_type,
 			'voucher_applicable_stores'=> $voucher_applicable_stores,
 			'voucher_type_label'       => ($voucher_type === 'BSC') ? 'Voucher tại BSC' : 'Voucher bên thứ 3',
+			'brand_name'               => ($voucher_type !== 'BSC') ? sanitize_text_field((string) (get_field('voucher_brand_name', $voucher_id) ?? '')) : '',
 			'points_cost'              => $points_cost,
 			'quantity'                 => $quantity,
 			'redemption_count'         => $redemption_count,
@@ -393,7 +394,7 @@ if (!$gift_data) {
 							</div>
 						</div>
 						
-						<?php if (!empty($gift_data['partner_name'])): ?>
+						<?php if (!empty($gift_data['partner_name']) && $gift_data['voucher_type'] === 'BSC'): ?>
 							<div class="info-row">
 								<div class="info-label">Đối tác:</div>
 								<div class="info-value">
@@ -421,10 +422,12 @@ if (!$gift_data) {
 							</div>
 						<?php endif; ?>
 						
+						<?php if ($gift_data['voucher_type'] === 'BSC'): ?>
 						<div class="info-row">
 							<div class="info-label">Điểm đổi:</div>
 							<div class="info-value"><span class="font-semibold text-blue-600"><?php echo number_format($gift_data['points_cost']); ?></span> điểm</div>
 						</div>
+						<?php endif; ?>
 						
 						<div class="info-row">
 							<div class="info-label">Thời gian có hiệu lực:</div>
@@ -456,7 +459,7 @@ if (!$gift_data) {
 							</div>
 						</div>
 						
-						<?php if (!empty($gift_data['voucher_description'])): ?>
+						<?php if (!empty($gift_data['voucher_description']) && $gift_data['voucher_type'] === 'BSC'): ?>
 							<div class="info-row">
 								<div class="info-label">Mô tả:</div>
 								<div class="info-value"><?php echo wp_kses_post($gift_data['voucher_description']); ?></div>
@@ -518,6 +521,25 @@ if (!$gift_data) {
 							<!-- Section GotIt Transaction -->
 							<div class="mt-6 pt-6 border-t border-gray-200">
 								<h5 class="font-semibold text-[#31333F] mb-4">Thông tin GotIt</h5>
+
+								<?php if (!empty($gift_data['brand_name'])): ?>
+									<div class="info-row">
+										<div class="info-label">Brand:</div>
+										<div class="info-value font-medium"><?php echo esc_html($gift_data['brand_name']); ?></div>
+									</div>
+								<?php endif; ?>
+
+								<div class="info-row">
+									<div class="info-label">Điểm đổi:</div>
+									<div class="info-value"><span class="font-semibold text-blue-600"><?php echo number_format($gift_data['points_cost']); ?></span> điểm</div>
+								</div>
+
+								<?php if (!empty($gift_data['voucher_description'])): ?>
+									<div class="info-row">
+										<div class="info-label">Mô tả:</div>
+										<div class="info-value"><?php echo wp_kses_post($gift_data['voucher_description']); ?></div>
+									</div>
+								<?php endif; ?>
 
 								<?php if (!empty($gift_data['gotit_categories'])): ?>
 									<div class="info-row">
@@ -631,7 +653,7 @@ if (!$gift_data) {
 						<?php endif; ?>
 						
 						<!-- All Images Section -->
-						<?php if (!empty($gift_data['banner_image_url']) || !empty($gift_data['thumbnail_url']) || !empty($gift_data['redeemed_banner_image_url'])): ?>
+						<?php if (!empty($gift_data['banner_image_url']) || !empty($gift_data['thumbnail_url'])): ?>
 							<div class="mt-6 pt-6 border-t border-gray-200">
 								<h5 class="font-semibold text-[#31333F] mb-3">Hình ảnh voucher:</h5>
 								<div class="grid grid-cols-3 gap-4">
@@ -641,18 +663,11 @@ if (!$gift_data) {
 											<img src="<?php echo esc_url($gift_data['banner_image_url']); ?>" alt="Banner" class="w-full h-32 object-cover rounded-lg border border-gray-200">
 										</div>
 									<?php endif; ?>
-									
+
 									<?php if (!empty($gift_data['thumbnail_url'])): ?>
 										<div>
 											<div class="text-xs text-gray-500 mb-2">Featured Image (Ảnh đại diện)</div>
 											<img src="<?php echo esc_url($gift_data['thumbnail_url']); ?>" alt="Featured Image" class="w-full h-32 object-cover rounded-lg border border-gray-200">
-										</div>
-									<?php endif; ?>
-									
-									<?php if (!empty($gift_data['redeemed_banner_image_url'])): ?>
-										<div>
-											<div class="text-xs text-gray-500 mb-2">Banner đã đổi (ACF)</div>
-											<img src="<?php echo esc_url($gift_data['redeemed_banner_image_url']); ?>" alt="Redeemed Banner" class="w-full h-32 object-cover rounded-lg border border-gray-200">
 										</div>
 									<?php endif; ?>
 								</div>

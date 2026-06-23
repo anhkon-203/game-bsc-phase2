@@ -324,16 +324,16 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 
 
 
-	// B1: Kiểm tra nonce để chống request không hợp lệ.
+	// B1: Kiểm tra nonce — nếu không hợp lệ thì bỏ qua sync, vẫn trả true để tránh trigger login popup trên mobile.
 	$check_nonce = game_rest_perm_cb($request);
 	if (!$check_nonce) {
-		return wg_json_response(403, [], __('Yêu cầu không hợp lệ.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		return wg_json_response(200, true);
 	}
 
-	// B2: Kiểm tra session SSO và lấy user hiện tại.
+	// B2: Kiểm tra session SSO — không trả 401 để tránh popup login trên mobile.
 	$current_user = game_sso_require_session();
 	if (is_wp_error($current_user) || empty($current_user['id'])) {
-		return wg_json_response(401, ['login_url' => bsc_game_url_sso()], __('Bạn chưa đăng nhập. Vui lòng đăng nhập để tiếp tục.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		return wg_json_response(200, true);
 	}
 
 	$user_id = absint($current_user['id']);
@@ -349,11 +349,11 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 	);
 
 	if (!$user) {
-		return wg_json_response(404, [], __('Không tìm thấy người dùng.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		return wg_json_response(200, true);
 	}
 
 	if ((int) $user['status'] === 0) {
-		return wg_json_response(403, [], __('Tài khoản của bạn đã bị khóa.', WG_GAME_PLUGIN_TEXTDOMAIN));
+		return wg_json_response(200, true);
 	}
 
 	// B4: Lấy access token để gọi API Trading.
@@ -363,7 +363,7 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 	}
 
 	if ($header === '') {
-		return wg_json_response(401, [], __('Thiếu access token để gọi BSC Trading API.', WG_GAME_PLUGIN_TEXTDOMAIN), 401);
+		return wg_json_response(200, true);
 	}
 
 	$authorization_header = (stripos($header, 'Bearer ') === 0) ? $header : 'Bearer ' . $header;
@@ -889,14 +889,20 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 			];
 		}
 
-		// Query toàn bộ rồi filter hạn dùng ở PHP để pagination khớp với dữ liệu hiển thị.
-		$args['posts_per_page'] = -1;
-		$args['no_found_rows'] = true;
+		if ($only_gotit) {
+			$args['posts_per_page'] = $per_page;
+			$args['paged']          = $page;
+			$args['no_found_rows']  = false;
+		} else {
+			// Query toàn bộ rồi filter hạn dùng ở PHP để pagination khớp với dữ liệu hiển thị.
+			$args['posts_per_page'] = -1;
+			$args['no_found_rows']  = true;
+		}
 
 		$query_result = new WP_Query($args);
 		$all_vouchers = $query_result->posts;
-		$query_total_items = (int) $query_result->post_count;
-		$query_total_pages = $query_total_items > 0 ? 1 : 0;
+		$query_total_items = $only_gotit ? (int) $query_result->found_posts : (int) $query_result->post_count;
+		$query_total_pages = $only_gotit ? (int) $query_result->max_num_pages : ($query_total_items > 0 ? 1 : 0);
 
 		// Fallback: nếu taxonomy relation bị thiếu nhưng voucher vẫn có meta Got It category id,
 		// lọc theo `_game_bsc_gotit_category_id` để tránh mất dữ liệu khi truy vấn theo danh mục.
@@ -916,8 +922,8 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 
 			$fallback_query = new WP_Query($fallback_args);
 			$all_vouchers = $fallback_query->posts;
-			$query_total_items = (int) $fallback_query->post_count;
-			$query_total_pages = $query_total_items > 0 ? 1 : 0;
+			$query_total_items = (int) $fallback_query->found_posts;
+			$query_total_pages = (int) $fallback_query->max_num_pages;
 		}
 
 		if (empty($all_vouchers)) {
@@ -1112,15 +1118,24 @@ function game_bsc_get_vouchers_list(WP_REST_Request $request) {
 			? __('Lấy danh sách voucher Got It thành công.', WG_GAME_PLUGIN_TEXTDOMAIN)
 			: __('Lấy danh sách voucher thành công.', WG_GAME_PLUGIN_TEXTDOMAIN);
 
-		$total_items = count($formatted_vouchers);
-		$total_pages = $total_items > 0 ? (int) ceil($total_items / $per_page) : 0;
+		if ($only_gotit) {
+			$total_items = $query_total_items;
+			$total_pages = $query_total_pages;
+		} else {
+			$total_items = count($formatted_vouchers);
+			$total_pages = $total_items > 0 ? (int) ceil($total_items / $per_page) : 0;
+		}
 
 		if ($total_pages > 0 && $page > $total_pages) {
 			return wg_json_response(400, [], __('Số trang vượt quá tổng số trang.', WG_GAME_PLUGIN_TEXTDOMAIN));
 		}
 
-		$offset = ($page - 1) * $per_page;
-		$paged_vouchers = array_slice(array_values($formatted_vouchers), $offset, $per_page);
+		if ($only_gotit) {
+			$paged_vouchers = $formatted_vouchers;
+		} else {
+			$offset = ($page - 1) * $per_page;
+			$paged_vouchers = array_slice(array_values($formatted_vouchers), $offset, $per_page);
+		}
 
 		return wg_json_response(
 			200,
@@ -1205,7 +1220,7 @@ function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $reques
 
 	$gotit_transaction_join_sql = "
 		LEFT JOIN (
-			SELECT g1.redemption_id, g1.transaction_ref_id, g1.gotit_expiry_date
+			SELECT g1.redemption_id, g1.transaction_ref_id, g1.gotit_expiry_date, g1.gotit_state_name, g1.gotit_status
 			FROM {$prefix}gotit_transactions g1
 			INNER JOIN (
 				SELECT redemption_id, MAX(id) AS max_id
@@ -1254,11 +1269,13 @@ function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $reques
 			uvr.voucher_post_id,
 			uvr.redeemed_at,
 			COALESCE(NULLIF(uvr.transaction_ref_id, ''), gtxn.transaction_ref_id, '') AS transaction_ref_id,
-			COALESCE(uvr.gotit_expiry_date, gtxn.gotit_expiry_date) AS expiry_date
+			COALESCE(uvr.gotit_expiry_date, gtxn.gotit_expiry_date) AS expiry_date,
+			gtxn.gotit_state_name,
+			gtxn.gotit_status
 		FROM {$prefix}user_voucher_redemptions uvr
 		{$gotit_transaction_join_sql}
 		WHERE {$where_sql}
-		ORDER BY uvr.redeemed_at DESC, uvr.id DESC
+		ORDER BY (CASE WHEN gtxn.gotit_state_name = 'USED' THEN 1 ELSE 0 END) ASC, uvr.redeemed_at DESC, uvr.id DESC
 		LIMIT %d OFFSET %d
 	";
 
@@ -1293,10 +1310,15 @@ function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $reques
 		$transaction_ref_id = sanitize_text_field((string) ($row['transaction_ref_id'] ?? ''));
 		$expiry_date = sanitize_text_field((string) ($row['expiry_date'] ?? ''));
 
+		// Kiểm tra trạng thái đã sử dụng của voucher Got It
+		$gotit_state_name = strtoupper(trim((string) ($row['gotit_state_name'] ?? '')));
+		$is_used = ($gotit_state_name === 'USED');
+
 		$vouchers[] = [
 			'voucher_redemption_id' => (int) ($row['redemption_id'] ?? 0),
 			'transaction_ref_id' => $transaction_ref_id,
 			'redeemed_at' => sanitize_text_field((string) ($row['redeemed_at'] ?? '')),
+			'is_used' => $is_used,
 			'voucher' => [
 				'id' => $voucher_post_id,
 				'title' => $voucher_title,

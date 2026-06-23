@@ -67,7 +67,7 @@ if ($should_render_app && file_exists($app_path . 'index.html')) {
     if ($first_style_handle) {
         wp_add_inline_style(
             $first_style_handle,
-            'html,body{height:auto;overflow:visible;}body{background:inherit;}#nextjs-embedded-app{height:100vh;min-height:640px;overflow:hidden;}#nextjs-embedded-app .cstdio-main-layout.cstdio-page{height:100%;}'
+            'html,body{height:100vh;overflow:visible;}body{background:inherit;}#nextjs-embedded-app{height:100vh;min-height:640px;overflow:hidden;}#nextjs-embedded-app .cstdio-main-layout.cstdio-page{height:100%;}'
         );
     }
 

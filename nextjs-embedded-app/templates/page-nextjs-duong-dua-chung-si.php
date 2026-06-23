@@ -26,7 +26,7 @@ wp_add_inline_style(
 
 
 // JS entry
-wp_enqueue_script('dau-truong-js', $app_url . 'assets/app.js', [], $ver, true);
+wp_enqueue_script('dau-truong-js', $app_url . 'assets/app.js', [], null, true);
 wp_script_add_data('dau-truong-js', 'type', 'module');
 add_filter('script_loader_tag', function ($tag, $handle, $src) {
     if ($handle !== 'dau-truong-js') {
@@ -43,54 +43,54 @@ get_header();
     ]); ?>;
 
     // // Desktop postMessage handler — bắt SSO login + logout từ app
-    window.addEventListener('message', function (event) {
-        var d = event.data;
-        if (!d) return;
-        // SSO login
-        if (d.cstd_callapi_authen) {
-            window.location.href = d.cstd_callapi_authen;
-        }
-        // SSO logout
-        if (d.postBackLogout) {
-            const win = window.open(d.postBackLogout, "sso", "width=450,height=600");
-            var logoutHandled = false;
+    // window.addEventListener('message', function (event) {
+    //     var d = event.data;
+    //     if (!d) return;
+    //     // SSO login
+    //     if (d.cstd_callapi_authen) {
+    //         window.location.href = d.cstd_callapi_authen;
+    //     }
+    //     // SSO logout
+    //     if (d.postBackLogout) {
+    //         const win = window.open(d.postBackLogout, "sso", "width=450,height=600");
+    //         var logoutHandled = false;
 
-            function handleAfterLogout() {
-                if (logoutHandled) return;
-                logoutHandled = true;
-                clearInterval(timer);
-                clearTimeout(closeTimeout);
+    //         function handleAfterLogout() {
+    //             if (logoutHandled) return;
+    //             logoutHandled = true;
+    //             clearInterval(timer);
+    //             clearTimeout(closeTimeout);
 
-                window.postMessage(
-                    { type: "logout_done" },
-                    "<?php echo (is_ssl() ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']; ?>"
-                );
-            }
+    //             window.postMessage(
+    //                 { type: "logout_done" },
+    //                 "<?php // echo (is_ssl() ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']; ?>"
+    //             );
+    //         }
 
-            // Nếu popup bị chặn
-            if (!win) {
-                console.warn("Popup blocked → assume logout done");
-                handleAfterLogout();
-            } else {
-                var timer = setInterval(function () {
-                    if (win.closed) {
-                        handleAfterLogout();
-                    }
-                }, 500);
+    //         // Nếu popup bị chặn
+    //         if (!win) {
+    //             console.warn("Popup blocked → assume logout done");
+    //             handleAfterLogout();
+    //         } else {
+    //             var timer = setInterval(function () {
+    //                 if (win.closed) {
+    //                     handleAfterLogout();
+    //                 }
+    //             }, 500);
 
-                var closeTimeout = setTimeout(function () {
-                    try {
-                        if (!win.closed) {
-                            win.close();
-                        }
-                    } catch (e) {
-                        console.warn("Cannot close popup:", e);
-                    }
-                    handleAfterLogout();
-                }, 3000);
-            }
-        }
-    });
+    //             var closeTimeout = setTimeout(function () {
+    //                 try {
+    //                     if (!win.closed) {
+    //                         win.close();
+    //                     }
+    //                 } catch (e) {
+    //                     console.warn("Cannot close popup:", e);
+    //                 }
+    //                 handleAfterLogout();
+    //             }, 3000);
+    //         }
+    //     }
+    // });
 </script>
 
 <div id="nextjs-embedded-app"></div>

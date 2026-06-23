@@ -214,6 +214,7 @@ $current_time = $now->format('H:i:s');
 								<th class="px-6 py-3 text-left">Ngày sử dụng voucher</th>
 								<th class="px-6 py-3 text-left">Danh mục</th>
 								<th class="px-6 py-3 text-left">Trạng thái sử dụng</th>
+								<th class="px-6 py-3 text-left">Brand</th>
 								<th class="px-6 py-3 text-left">Loại voucher</th>
 								<th class="px-6 py-3 text-left">Loại quà</th>
 								<th class="px-6 py-3 text-left"></th>
@@ -315,6 +316,15 @@ $current_time = $now->format('H:i:s');
 											<?php endif; ?>
 										</td>
 
+										<!-- Brand -->
+										<td class="px-6 py-3">
+											<?php if ($redemption['gift_type'] === 'voucher'): ?>
+												<?php echo esc_html($redemption['brand'] ?? ''); ?>
+											<?php else: ?>
+												<span class="text-gray-400">N/A</span>
+											<?php endif; ?>
+										</td>
+
 										<!-- Loại voucher -->
 										<td class="px-6 py-3">
 											<?php if ($redemption['gift_type'] === 'voucher'): ?>
@@ -360,7 +370,7 @@ $current_time = $now->format('H:i:s');
 								<?php endforeach; ?>
 							<?php else: ?>
 								<tr>
-									<td colspan="14" class="px-6 py-8 text-center text-gray-500">
+									<td colspan="15" class="px-6 py-8 text-center text-gray-500">
 										Không có dữ liệu để hiển thị
 									</td>
 								</tr>
