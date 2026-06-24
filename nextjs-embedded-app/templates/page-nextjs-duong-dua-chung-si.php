@@ -94,6 +94,35 @@ get_header();
 </script>
 
 <div id="nextjs-embedded-app"></div>
+<script>
+(function () {
+    var _originalOpen = window.open;
+    var _logoutPopup = null;
+
+    // Intercept window.open(_blank) — chỉ logout dùng pattern này.
+    // Mở thành popup nhỏ cố định bên phải thay vì tab mới.
+    window.open = function (url, target, features) {
+        if (target === '_blank' && !features) {
+            var w = 420;
+            var h = window.screen.availHeight || window.screen.height;
+            var left = (window.screen.availWidth || window.screen.width) - w;
+            var top = 0;
+            _logoutPopup = _originalOpen.call(
+                window, url, 'game_logout_popup',
+                'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top +
+                ',toolbar=no,menubar=no,location=no,scrollbars=yes,resizable=no,status=no'
+            );
+            window.addEventListener('beforeunload', function () {
+                if (_logoutPopup && !_logoutPopup.closed) {
+                    _logoutPopup.close();
+                }
+            }, { once: true });
+            return _logoutPopup;
+        }
+        return _originalOpen.apply(window, arguments);
+    };
+})();
+</script>
 <?php get_footer();
 
 // Rewrite toàn bộ path plugin cũ → mới

@@ -55,16 +55,6 @@ function game_bsc_admin_menu() {
 	);
 	
 
-
-	add_submenu_page(
-		null,
-		__('Cửa hàng áp dụng', WG_GAME_PLUGIN_TEXTDOMAIN),
-		__('Cửa hàng áp dụng', WG_GAME_PLUGIN_TEXTDOMAIN),
-		'manage_options',
-		'game-bsc-stores-tool',
-		'game_bsc_render_stores_tool_page'
-	);
-	
 }
 
 
@@ -186,6 +176,3 @@ require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/settings.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/manage-artifacts.php';
 require_once GAME_BSC_PLUGIN_DIR . 'includes/helpers/artifact-detail.php';
 
-
-// Voucher Stores Tool
-require_once GAME_BSC_PLUGIN_DIR . 'includes/admin/voucher-stores-tool.php';

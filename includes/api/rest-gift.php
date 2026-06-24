@@ -375,251 +375,251 @@ function game_bsc_get_registered_vouchers_and_sync_fields(WP_REST_Request $reque
 	}
 	$trading_server = rtrim($trading_server, '/');
 
-	// B6: Gọi endpoint registeredVoucherList từ Trading API.
-	$response = wp_remote_get($trading_server . '/report/registeredVoucherList', [
-		'headers' => [
-			'Authorization' => $authorization_header,
-			'Content-Type'  => 'application/json',
-			'Accept'        => 'application/json',
-		],
-		'timeout' => 20,
-	]);
-
-	// Nếu lỗi network/http client thì trả lỗi hệ thống.
-	if (is_wp_error($response)) {
-		error_log('game_bsc_get_registered_vouchers_and_sync_fields wp_error: ' . $response->get_error_message());
-		return wg_json_response(500, [], __('Không thể kết nối BSC Trading API.', WG_GAME_PLUGIN_TEXTDOMAIN), 500);
-	}
-
-	$http_code = (int) wp_remote_retrieve_response_code($response);
-	$body_raw = (string) wp_remote_retrieve_body($response);
-	$body = json_decode($body_raw, true);
-
-	// Validate shape response cơ bản trước khi xử lý.
-	if ($http_code < 200 || $http_code >= 300 || !is_array($body)) {
-		error_log('game_bsc_get_registered_vouchers_and_sync_fields invalid_response: HTTP ' . $http_code . ' body=' . $body_raw);
-		return wg_json_response(500, [], __('BSC Trading API trả về dữ liệu không hợp lệ.', WG_GAME_PLUGIN_TEXTDOMAIN), 500);
-	}
-
-	// Validate business status từ Trading API (s = ok).
-	if (($body['s'] ?? '') !== 'ok') {
-		$error_message = sanitize_text_field((string) ($body['em'] ?? ''));
-		if ($error_message === '') {
-			$error_message = __('BSC Trading API trả về lỗi.', WG_GAME_PLUGIN_TEXTDOMAIN);
-		}
-
-		return wg_json_response(400, [
-			'api_status' => $body['s'] ?? '',
-			'api_error_code' => $body['ec'] ?? null,
-		], $error_message, 400);
-	}
-
-	// Danh sách item từ API gốc.
-	$registered_items = isset($body['d']) && is_array($body['d']) ? $body['d'] : [];
+	// Capture trước khi đưa vào closure
 	$external_user_id = sanitize_text_field((string) ($user['external_user_id'] ?? ''));
 
-	// Lấy danh sách voucher_code của tất cả game_vouchers đang kích hoạt (publish) trong hệ thống game để làm tập lọc đối chiếu
-	$active_voucher_codes = $wpdb->get_col(
-		"SELECT DISTINCT pm.meta_value
-		 FROM {$wpdb->postmeta} pm
-		 INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
-		 WHERE p.post_type = 'game_vouchers'
-		   AND p.post_status = 'publish'
-		   AND pm.meta_key = 'voucher_code'
-		   AND pm.meta_value IS NOT NULL
-		   AND pm.meta_value != ''"
-	);
-	$active_normalized_codes = array_map(function ($code) {
-		return strtoupper(trim((string)$code));
-	}, $active_voucher_codes ?: []);
+	// Trả success ngay, toàn bộ sync chạy sau khi response đã được gửi đi.
+	add_action('shutdown', function () use (
+		$wpdb,
+		$user_id,
+		$prefix,
+		$external_user_id,
+		$authorization_header,
+		$trading_server,
+		$normalize_registered_voucher_amount,
+		$parse_api_date
+	) {
+		// B6: Gọi endpoint registeredVoucherList từ Trading API.
+		$response = wp_remote_get($trading_server . '/report/registeredVoucherList', [
+			'headers' => [
+				'Authorization' => $authorization_header,
+				'Content-Type'  => 'application/json',
+				'Accept'        => 'application/json',
+			],
+			'timeout' => 20,
+		]);
 
-	// B7: Lấy danh sách voucher BSC đã đổi trong DB của user này để khớp dữ liệu (chỉ lấy các voucher đang kích hoạt - publish)
-	$user_redemptions = $wpdb->get_results(
-		$wpdb->prepare(
-			"SELECT uvr.id, uvr.voucher_post_id, uvr.redeemed_at, uvr.prinpaid, uvr.gotit_expiry_date, uvr.start_date,
-			        pm_code.meta_value as voucher_code
-			 FROM {$prefix}user_voucher_redemptions uvr
-			 INNER JOIN {$wpdb->posts} p ON uvr.voucher_post_id = p.ID
-			 LEFT JOIN {$wpdb->postmeta} pm_type ON uvr.voucher_post_id = pm_type.post_id AND pm_type.meta_key = 'voucher_type'
-			 LEFT JOIN {$wpdb->postmeta} pm_code ON uvr.voucher_post_id = pm_code.post_id AND pm_code.meta_key = 'voucher_code'
-			 WHERE uvr.user_id = %d
-			   AND p.post_type = 'game_vouchers'
+		if (is_wp_error($response)) {
+			error_log('game_bsc_get_registered_vouchers_and_sync_fields wp_error: ' . $response->get_error_message());
+			return;
+		}
+
+		$http_code = (int) wp_remote_retrieve_response_code($response);
+		$body_raw = (string) wp_remote_retrieve_body($response);
+		$body = json_decode($body_raw, true);
+
+		if ($http_code < 200 || $http_code >= 300 || !is_array($body)) {
+			error_log('game_bsc_get_registered_vouchers_and_sync_fields invalid_response: HTTP ' . $http_code . ' body=' . $body_raw);
+			return;
+		}
+
+		if (($body['s'] ?? '') !== 'ok') {
+			error_log('game_bsc_get_registered_vouchers_and_sync_fields api_error: s=' . ($body['s'] ?? '') . ' em=' . ($body['em'] ?? ''));
+			return;
+		}
+
+		// Danh sách item từ API gốc.
+		$registered_items = isset($body['d']) && is_array($body['d']) ? $body['d'] : [];
+
+		// Lấy danh sách voucher_code của tất cả game_vouchers đang kích hoạt (publish) trong hệ thống game để làm tập lọc đối chiếu
+		$active_voucher_codes = $wpdb->get_col(
+			"SELECT DISTINCT pm.meta_value
+			 FROM {$wpdb->postmeta} pm
+			 INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+			 WHERE p.post_type = 'game_vouchers'
 			   AND p.post_status = 'publish'
-			   AND (UPPER(TRIM(pm_type.meta_value)) NOT IN ('THIRD_PARTY', 'THIRD-PARTY') OR pm_type.meta_value IS NULL)
-			 ORDER BY uvr.redeemed_at ASC, uvr.id ASC",
-			$user_id
-		),
-		ARRAY_A
-	);
+			   AND pm.meta_key = 'voucher_code'
+			   AND pm.meta_value IS NOT NULL
+			   AND pm.meta_value != ''"
+		);
+		$active_normalized_codes = array_map(function ($code) {
+			return strtoupper(trim((string)$code));
+		}, $active_voucher_codes ?: []);
 
-	// Lọc danh sách voucher từ API thuộc về user này
-	$api_vouchers = [];
-	foreach ($registered_items as $item) {
-		if (!is_array($item)) {
-			continue;
+		// B7: Lấy danh sách voucher BSC đã đổi trong DB của user này để khớp dữ liệu (chỉ lấy các voucher đang kích hoạt - publish)
+		$user_redemptions = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT uvr.id, uvr.voucher_post_id, uvr.redeemed_at, uvr.prinpaid, uvr.gotit_expiry_date, uvr.start_date,
+				        pm_code.meta_value as voucher_code
+				 FROM {$prefix}user_voucher_redemptions uvr
+				 INNER JOIN {$wpdb->posts} p ON uvr.voucher_post_id = p.ID
+				 LEFT JOIN {$wpdb->postmeta} pm_type ON uvr.voucher_post_id = pm_type.post_id AND pm_type.meta_key = 'voucher_type'
+				 LEFT JOIN {$wpdb->postmeta} pm_code ON uvr.voucher_post_id = pm_code.post_id AND pm_code.meta_key = 'voucher_code'
+				 WHERE uvr.user_id = %d
+				   AND p.post_type = 'game_vouchers'
+				   AND p.post_status = 'publish'
+				   AND (UPPER(TRIM(pm_type.meta_value)) NOT IN ('THIRD_PARTY', 'THIRD-PARTY') OR pm_type.meta_value IS NULL)
+				 ORDER BY uvr.redeemed_at ASC, uvr.id ASC",
+				$user_id
+			),
+			ARRAY_A
+		);
+
+		// Lọc danh sách voucher từ API thuộc về user này
+		$api_vouchers = [];
+		foreach ($registered_items as $item) {
+			if (!is_array($item)) {
+				continue;
+			}
+
+			$item_custodycd = sanitize_text_field((string) ($item['custodycd'] ?? ''));
+			if ($external_user_id !== '' && $item_custodycd !== '' && strcasecmp($item_custodycd, $external_user_id) !== 0) {
+				continue;
+			}
+
+			$valdate_parsed = $parse_api_date($item['valdate'] ?? '', '00:00:00');
+			$expdate_parsed = $parse_api_date($item['expdate'] ?? '', '23:59:59');
+			$prinpaid_val = $normalize_registered_voucher_amount($item['prinpaid'] ?? 0);
+			$voucher_code = strtoupper(trim((string)($item['voucherid'] ?? '')));
+
+			if ($valdate_parsed === null || $voucher_code === '') {
+				continue;
+			}
+
+			// NẾU ko tồn tại ở voucher code bên gami thì ko map thôi
+			if (!in_array($voucher_code, $active_normalized_codes, true)) {
+				continue;
+			}
+
+			$api_vouchers[] = [
+				'valdate'             => $valdate_parsed,
+				'valdate_ymd'         => date('Y-m-d', strtotime($valdate_parsed)),
+				'expdate'             => $expdate_parsed,
+				'prinpaid'            => $prinpaid_val,
+				'voucher_code'        => $voucher_code,
+				'original_voucherid'  => $item['voucherid'] ?? '',
+				'original_valdate'    => $item['valdate'] ?? '',
+			];
 		}
 
-		$item_custodycd = sanitize_text_field((string) ($item['custodycd'] ?? ''));
-		if ($external_user_id !== '' && $item_custodycd !== '' && strcasecmp($item_custodycd, $external_user_id) !== 0) {
-			continue;
+		// BƯỚC 1: Ưu tiên khớp chính xác 100% cả Ngày đổi (DATE(redeemed_at) === valdate_ymd) và Mã voucher chuẩn hóa.
+		$matched_db_ids     = [];
+		$matched_api_indices = [];
+
+		foreach ($api_vouchers as $index => $api_v) {
+			$target_date = $api_v['valdate_ymd'];
+			$target_code = $api_v['voucher_code'];
+
+			foreach ($user_redemptions as $db_r) {
+				$db_r_id = (int)$db_r['id'];
+				if (in_array($db_r_id, $matched_db_ids, true)) {
+					continue;
+				}
+
+				$db_date = date('Y-m-d', strtotime($db_r['redeemed_at']));
+				$db_code = strtoupper(trim((string)($db_r['voucher_code'] ?? '')));
+
+				if ($db_date === $target_date && $db_code === $target_code) {
+					$matched_db_ids[]      = $db_r_id;
+					$matched_api_indices[] = $index;
+
+					$need_update = (
+						$db_r['start_date']        !== $api_v['valdate'] ||
+						$db_r['gotit_expiry_date']  !== $api_v['expdate'] ||
+						(int)$db_r['prinpaid']      !== (int)$api_v['prinpaid']
+					);
+
+					if ($need_update) {
+						$wpdb->update(
+							"{$prefix}user_voucher_redemptions",
+							[
+								'start_date'        => $api_v['valdate'],
+								'gotit_expiry_date' => $api_v['expdate'],
+								'prinpaid'          => $api_v['prinpaid'],
+							],
+							['id' => $db_r_id]
+						);
+					}
+					break;
+				}
+			}
 		}
 
-		$valdate_parsed = $parse_api_date($item['valdate'] ?? '', '00:00:00');
-		$expdate_parsed = $parse_api_date($item['expdate'] ?? '', '23:59:59');
-		$prinpaid_val = $normalize_registered_voucher_amount($item['prinpaid'] ?? 0);
-		$voucher_code = strtoupper(trim((string)($item['voucherid'] ?? '')));
+		// BƯỚC 2: Khớp fallback cho các bản ghi còn dư chỉ dựa trên Mã voucher chuẩn hóa theo thứ tự thời gian đổi (cho phép lệch ngày do BSC gom batch job phát hành).
+		foreach ($api_vouchers as $index => $api_v) {
+			if (in_array($index, $matched_api_indices, true)) {
+				continue; // Đã được khớp ở Bước 1
+			}
 
-		if ($valdate_parsed === null || $voucher_code === '') {
-			continue;
+			$target_code = $api_v['voucher_code'];
+
+			foreach ($user_redemptions as $db_r) {
+				$db_r_id = (int)$db_r['id'];
+				if (in_array($db_r_id, $matched_db_ids, true)) {
+					continue; // Đã được khớp trước đó
+				}
+
+				$db_code = strtoupper(trim((string)($db_r['voucher_code'] ?? '')));
+
+				if ($db_code === $target_code) {
+					$matched_db_ids[]      = $db_r_id;
+					$matched_api_indices[] = $index;
+
+					$need_update = (
+						$db_r['start_date']        !== $api_v['valdate'] ||
+						$db_r['gotit_expiry_date']  !== $api_v['expdate'] ||
+						(int)$db_r['prinpaid']      !== (int)$api_v['prinpaid']
+					);
+
+					if ($need_update) {
+						$wpdb->update(
+							"{$prefix}user_voucher_redemptions",
+							[
+								'start_date'        => $api_v['valdate'],
+								'gotit_expiry_date' => $api_v['expdate'],
+								'prinpaid'          => $api_v['prinpaid'],
+							],
+							['id' => $db_r_id]
+						);
+					}
+					break;
+				}
+			}
 		}
 
-		// NẾU ko tồn tại ở voucher code bên gami thì ko map thôi
-		if (!in_array($voucher_code, $active_normalized_codes, true)) {
-			continue;
-		}
-
-		$api_vouchers[] = [
-			'valdate' => $valdate_parsed,
-			'valdate_ymd' => date('Y-m-d', strtotime($valdate_parsed)),
-			'expdate' => $expdate_parsed,
-			'prinpaid' => $prinpaid_val,
-			'voucher_code' => $voucher_code,
-			'original_voucherid' => $item['voucherid'] ?? '',
-			'original_valdate' => $item['valdate'] ?? '',
-		];
-	}
-
-	// BƯỚC 1: Ưu tiên khớp chính xác 100% cả Ngày đổi (DATE(redeemed_at) === valdate_ymd) và Mã voucher chuẩn hóa.
-	$matched_db_ids = [];
-	$matched_api_indices = [];
-
-	foreach ($api_vouchers as $index => $api_v) {
-		$target_date = $api_v['valdate_ymd'];
-		$target_code = $api_v['voucher_code'];
-
+		// BƯỚC 3: Reset các bản ghi DB còn dư không được khớp (xử lý voucher bị hủy hoặc delay phía BSC)
 		foreach ($user_redemptions as $db_r) {
 			$db_r_id = (int)$db_r['id'];
 			if (in_array($db_r_id, $matched_db_ids, true)) {
 				continue;
 			}
 
-			$db_date = date('Y-m-d', strtotime($db_r['redeemed_at']));
-			$db_code = strtoupper(trim((string)($db_r['voucher_code'] ?? '')));
-
-			if ($db_date === $target_date && $db_code === $target_code) {
-				$matched_db_ids[] = $db_r_id;
-				$matched_api_indices[] = $index;
-
-				$need_update = (
-					$db_r['start_date'] !== $api_v['valdate'] ||
-					$db_r['gotit_expiry_date'] !== $api_v['expdate'] ||
-					(int)$db_r['prinpaid'] !== (int)$api_v['prinpaid']
+			if ($db_r['start_date'] === null) {
+				// A. Voucher chưa từng được đồng bộ (đang đợi BSC tạo) nhưng nay ko có trong API -> reset về NULL/0
+				$has_data = (
+					$db_r['gotit_expiry_date'] !== null ||
+					(int)$db_r['prinpaid'] !== 0
 				);
 
-				if ($need_update) {
+				if ($has_data) {
 					$wpdb->update(
 						"{$prefix}user_voucher_redemptions",
 						[
-							'start_date' => $api_v['valdate'],
-							'gotit_expiry_date' => $api_v['expdate'],
-							'prinpaid' => $api_v['prinpaid'],
+							'start_date'        => null,
+							'gotit_expiry_date' => null,
+							'prinpaid'          => 0,
 						],
 						['id' => $db_r_id]
 					);
 				}
-				break;
-			}
-		}
-	}
+			} else {
+				// B. Voucher ĐÃ từng được đồng bộ trước đó nhưng nay biến mất khỏi API của BSC.
+				// Nghĩa là BSC đã xoá voucher này khỏi API do đã tiêu hết hoặc hết hạn.
+				// Cập nhật prinpaid = voucheramt để ẩn voucher khỏi UI và giữ nguyên start_date/gotit_expiry_date để làm lịch sử.
+				$voucher_post_id = (int)$db_r['voucher_post_id'];
+				$voucheramt = (float) (get_post_meta($voucher_post_id, 'voucheramt', true) ?: 0);
 
-	// BƯỚC 2: Khớp fallback cho các bản ghi còn dư chỉ dựa trên Mã voucher chuẩn hóa theo thứ tự thời gian đổi (cho phép lệch ngày do BSC gom batch job phát hành).
-	foreach ($api_vouchers as $index => $api_v) {
-		if (in_array($index, $matched_api_indices, true)) {
-			continue; // Đã được khớp ở Bước 1
-		}
-
-		$target_code = $api_v['voucher_code'];
-		$target_date = $api_v['valdate_ymd'];
-
-		foreach ($user_redemptions as $db_r) {
-			$db_r_id = (int)$db_r['id'];
-			if (in_array($db_r_id, $matched_db_ids, true)) {
-				continue; // Đã được khớp trước đó
-			}
-
-			$db_code = strtoupper(trim((string)($db_r['voucher_code'] ?? '')));
-
-			if ($db_code === $target_code) {
-				$matched_db_ids[] = $db_r_id;
-				$matched_api_indices[] = $index;
-
-				$need_update = (
-					$db_r['start_date'] !== $api_v['valdate'] ||
-					$db_r['gotit_expiry_date'] !== $api_v['expdate'] ||
-					(int)$db_r['prinpaid'] !== (int)$api_v['prinpaid']
-				);
-
-				if ($need_update) {
+				if ((int)$db_r['prinpaid'] !== (int)$voucheramt) {
 					$wpdb->update(
 						"{$prefix}user_voucher_redemptions",
-						[
-							'start_date' => $api_v['valdate'],
-							'gotit_expiry_date' => $api_v['expdate'],
-							'prinpaid' => $api_v['prinpaid'],
-						],
+						['prinpaid' => $voucheramt],
 						['id' => $db_r_id]
 					);
 				}
-				break;
 			}
 		}
-	}
+	}); // end shutdown closure
 
-	// BƯỚC 3: Reset các bản ghi DB còn dư không được khớp (xử lý voucher bị hủy hoặc delay phía BSC)
-	foreach ($user_redemptions as $db_r) {
-		$db_r_id = (int)$db_r['id'];
-		if (in_array($db_r_id, $matched_db_ids, true)) {
-			continue;
-		}
-
-		if ($db_r['start_date'] === null) {
-			// A. Voucher chưa từng được đồng bộ (đang đợi BSC tạo) nhưng nay ko có trong API -> reset về NULL/0
-			$has_data = (
-				$db_r['gotit_expiry_date'] !== null ||
-				(int)$db_r['prinpaid'] !== 0
-			);
-
-			if ($has_data) {
-				$wpdb->update(
-					"{$prefix}user_voucher_redemptions",
-					[
-						'start_date'        => null,
-						'gotit_expiry_date' => null,
-						'prinpaid'          => 0,
-					],
-					['id' => $db_r_id]
-				);
-			}
-		} else {
-			// B. Voucher ĐÃ từng được đồng bộ trước đó nhưng nay biến mất khỏi API của BSC.
-			// Nghĩa là BSC đã xoá voucher này khỏi API do đã tiêu hết hoặc hết hạn.
-			// Cập nhật prinpaid = voucheramt để ẩn voucher khỏi UI và giữ nguyên start_date/gotit_expiry_date để làm lịch sử.
-			$voucher_post_id = (int)$db_r['voucher_post_id'];
-			$voucheramt = (float) (get_post_meta($voucher_post_id, 'voucheramt', true) ?: 0);
-
-			if ((int)$db_r['prinpaid'] !== (int)$voucheramt) {
-				$wpdb->update(
-					"{$prefix}user_voucher_redemptions",
-					[
-						'prinpaid' => $voucheramt,
-					],
-					['id' => $db_r_id]
-				);
-			}
-		}
-	}
-
-	// Endpoint chỉ sync dữ liệu nội bộ, không thao tác trên giao diện — trả về true.
 	return wg_json_response(200, true);
 }
 

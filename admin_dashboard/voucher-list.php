@@ -446,7 +446,7 @@ function exportVoucherListToCSV() {
 		'POINTS_REQUIRED',
 		'DESCR',
 		'VOUCHER_TYPE',
-		...(isThirdParty ? ['CATEGORY', 'USAGE_STATUS', 'USED_DATE'] : []),
+		...(isThirdParty ? ['CATEGORY', 'USAGE_STATUS', 'USED_DATE', 'BRAND'] : []),
 	];
 
 	// Build CSV content
@@ -492,6 +492,7 @@ function exportVoucherListToCSV() {
 				row.gotit_categories || '',
 				usageStatusEng,
 				row.gotit_used_date_display || '',
+				row.brand || '',
 			] : []),
 			// row.gift_type_label         // Loại quà
 		];

@@ -65,10 +65,14 @@ if ($should_render_app && file_exists($app_path . 'index.html')) {
     }
 
     if ($first_style_handle) {
-        wp_add_inline_style(
-            $first_style_handle,
-            'html,body{height:100vh;overflow:visible;}body{background:inherit;}#nextjs-embedded-app{height:100vh;min-height:640px;overflow:hidden;}#nextjs-embedded-app .cstdio-main-layout.cstdio-page{height:100%;}'
-        );
+        $base_css = 'html,body{height:100vh;overflow:visible;}body{background:inherit;}#nextjs-embedded-app{height:100vh;min-height:640px;overflow:hidden;}#nextjs-embedded-app .cstdio-main-layout.cstdio-page{height:100%;}';
+        // Ẩn popup "Hãy đăng nhập" trong lúc banner chưa load xong (readybanner=false)
+        // mà user đã có SSO session — tránh popup flash sai khi về tab trang chủ.
+        $has_sso_session = !empty($_COOKIE['access_token']);
+        if ($has_sso_session) {
+            $base_css .= '.cstdio-page-check-login{display:none!important;}.cstd-loading-dis{display:none!important;}';
+        }
+        wp_add_inline_style($first_style_handle, $base_css);
     }
 
     $root_divs = $xpath->query(
@@ -107,4 +111,34 @@ get_header(); ?>
     <?php echo $output; ?>
 </div>
 <?php echo $inline_scripts; ?>
+<script>
+(function () {
+    var _originalOpen = window.open;
+    var _logoutPopup = null;
+
+    // Intercept window.open(_blank) — chỉ logout dùng pattern này.
+    // Mở thành popup nhỏ cố định bên phải thay vì tab mới.
+    window.open = function (url, target, features) {
+        if (target === '_blank' && !features) {
+            var w = 420;
+            var h = window.screen.availHeight || window.screen.height;
+            var left = (window.screen.availWidth || window.screen.width) - w;
+            var top = 0;
+            _logoutPopup = _originalOpen.call(
+                window, url, 'game_logout_popup',
+                'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top +
+                ',toolbar=no,menubar=no,location=no,scrollbars=yes,resizable=no,status=no'
+            );
+            // Tự đóng popup khi main page reload (xảy ra 2 giây sau logout thành công)
+            window.addEventListener('beforeunload', function () {
+                if (_logoutPopup && !_logoutPopup.closed) {
+                    _logoutPopup.close();
+                }
+            }, { once: true });
+            return _logoutPopup;
+        }
+        return _originalOpen.apply(window, arguments);
+    };
+})();
+</script>
 <?php get_footer();
