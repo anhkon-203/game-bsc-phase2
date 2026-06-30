@@ -501,6 +501,13 @@ function game_bsc_settings_page() {
                         </td>
                     </tr>
                     <tr>
+                        <th><label for="gotit_enable_wp_webhook"><?php _e('Kích hoạt Webhook nội bộ WordPress', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
+                        <td>
+                            <input type="checkbox" name="gotit_enable_wp_webhook" id="gotit_enable_wp_webhook" value="1" <?php checked('1', get_option('game_bsc_gotit_enable_wp_webhook', '1')); ?>>
+                            <p class="description"><?php _e('Nếu tắt, REST API route /gotit-webhook của WordPress sẽ bị đóng để chuyển sang dùng service độc lập an toàn hơn.', WG_GAME_PLUGIN_TEXTDOMAIN); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
                         <th><label for="trading_server"><?php _e('BSC Trading Server URL', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
                         <td>
                             <input type="text" name="trading_server" id="trading_server" value="<?php echo esc_attr(get_option('game_bsc_trading_server', '')); ?>" style="width: 60%;">
@@ -1299,6 +1306,7 @@ function game_bsc_handle_save_settings() {
     $old_gotit_environment = get_option('game_bsc_gotit_environment', 'staging');
     $old_gotit_api_key = get_option('game_bsc_gotit_api_key', '');
     $old_gotit_webhook_secret = get_option('game_bsc_gotit_webhook_secret', '');
+    $old_gotit_enable_wp_webhook = get_option('game_bsc_gotit_enable_wp_webhook', '1');
     $old_max_drop_pieces = get_option('game_bsc_max_drop_pieces_per_day', 0);
     $old_price_drop_rate = get_option('game_bsc_piece_drop_rate', 0);
     $old_day_allowed_to_play_game_after_period_ends = get_option('game_bsc_day_allowed_to_play_game_after_period_ends', 0);
@@ -1532,6 +1540,12 @@ function game_bsc_handle_save_settings() {
     update_option('game_bsc_gotit_webhook_secret', $gotit_webhook_secret);
     if ($old_gotit_webhook_secret !== $gotit_webhook_secret) {
         game_bsc_log_settings_change('game_bsc_gotit_webhook_secret', !empty($old_gotit_webhook_secret) ? '[SET]' : '[EMPTY]', !empty($gotit_webhook_secret) ? '[SET]' : '[EMPTY]', 'update');
+    }
+
+    $gotit_enable_wp_webhook = isset($_POST['gotit_enable_wp_webhook']) ? '1' : '0';
+    update_option('game_bsc_gotit_enable_wp_webhook', $gotit_enable_wp_webhook);
+    if ($old_gotit_enable_wp_webhook !== $gotit_enable_wp_webhook) {
+        game_bsc_log_settings_change('game_bsc_gotit_enable_wp_webhook', $old_gotit_enable_wp_webhook, $gotit_enable_wp_webhook, 'update');
     }
 
     // Trading Server URL

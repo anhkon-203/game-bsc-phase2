@@ -8,13 +8,15 @@ if (!defined('ABSPATH')) {
  */
 
 // Đăng ký REST API Route
-add_action('rest_api_init', function () {
-    register_rest_route(NS, '/gotit-webhook', [
-        'methods'             => 'POST',
-        'callback'            => 'game_bsc_gotit_webhook_handler',
-        'permission_callback' => '__return_true', // Công khai, xác thực qua chữ ký (sign)
-    ]);
-});
+if (get_option('game_bsc_gotit_enable_wp_webhook', '1') === '1') {
+    add_action('rest_api_init', function () {
+        register_rest_route(NS, '/gotit-webhook', [
+            'methods'             => 'POST',
+            'callback'            => 'game_bsc_gotit_webhook_handler',
+            'permission_callback' => '__return_true', // Công khai, xác thực qua chữ ký (sign)
+        ]);
+    });
+}
 
 /**
  * Xử lý webhook request từ Got It
