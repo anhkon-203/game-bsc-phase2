@@ -74,13 +74,29 @@ server {
 
 ---
 
-### 3. Cấu hình Apache (.htaccess)
-Nếu máy chủ của bạn sử dụng Apache, bạn có thể tạo tệp `.htaccess` trong thư mục này để chặn truy cập trực tiếp vào các tệp cấu hình và log:
+### 3. Cấu hình Apache
+Nếu hệ thống của bạn sử dụng Apache thay vì Nginx, bạn cũng có thể mở một port riêng bằng cách thêm cấu hình sau vào tệp cấu hình Apache (ví dụ `httpd.conf` hoặc `apache2.conf`):
+
+```apache
+# Mở port 8081
+Listen 8081
+
+<VirtualHost *:8081>
+    ServerName localhost
+    DocumentRoot /var/www/bsc-game/wp-content/plugins/game-bsc/gotit-webhook-service
+
+    <Directory /var/www/bsc-game/wp-content/plugins/game-bsc/gotit-webhook-service>
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
+```
+
+Đồng thời, bạn cũng nên tạo tệp `.htaccess` trong thư mục `gotit-webhook-service` để chặn truy cập trực tiếp vào các tệp nhạy cảm (nếu chưa cấu hình ở cấp máy chủ):
 
 ```apache
 <FilesMatch "\.(config|log|ini)$">
-    Order deny,allow
-    Deny from all
+    Require all denied
 </FilesMatch>
 ```
 
