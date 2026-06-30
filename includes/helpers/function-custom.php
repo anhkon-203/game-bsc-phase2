@@ -16,15 +16,15 @@ include_once GAME_BSC_PLUGIN_DIR . 'includes/helpers/voucher-list.php';
 function game_rest_perm_cb($request)
 {
 	// Code dev - bypass nonce check
-	return true;
+	// return true;
 
 	// Code production
-	// $nonce = $request->get_header('X-WP-Nonce');
-	// if (!$nonce) $nonce = $request->get_param('_wpnonce');
-	// if (!$nonce || !wp_verify_nonce($nonce, 'wp_game_rest')) {
-	// 	return false;
-	// }
-	// return true;
+	$nonce = $request->get_header('X-WP-Nonce');
+	if (!$nonce) $nonce = $request->get_param('_wpnonce');
+	if (!$nonce || !wp_verify_nonce($nonce, 'wp_game_rest')) {
+		return false;
+	}
+	return true;
 }
 
 
@@ -55,11 +55,13 @@ function game_bsc_get_play_sessions_data($page = 1, $per_page = 20, $date_from =
 	
 	// Filter theo khoảng ngày
 	if (!empty($date_from)) {
+		if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) return ['status' => 'error', 'message' => 'date_from không hợp lệ.'];
 		$where_clauses[] = "DATE(ups.started_at) >= %s";
 		$params[] = sanitize_text_field($date_from);
 	}
-	
+
 	if (!empty($date_to)) {
+		if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) return ['status' => 'error', 'message' => 'date_to không hợp lệ.'];
 		$where_clauses[] = "DATE(ups.started_at) <= %s";
 		$params[] = sanitize_text_field($date_to);
 	}
@@ -434,11 +436,11 @@ function executeMissionApi($missionCode, $params = [])
 {
 
 	$url = getEndpointFromMissionCode($missionCode);
-	$apiBaseUrl = $url['base_url'];
-	$endpoint = $url['end_point'];
 	if (!$url) {
 		return null;
 	}
+	$apiBaseUrl = $url['base_url'];
+	$endpoint = $url['end_point'];
 	
 	// Kiểm tra tham số
 	if (!validateParams($missionCode, $params)) {
@@ -519,7 +521,6 @@ function callApiGame($url, $data = false, $method = "GET", $headers = array())
 
 	return json_decode($response);
 }
-// test
 // Hàm kiểm tra user đã thực hiện nhiệm vụ hiện tại chưa
 function user_complete_mission($user_id, $misson_code) {
 	global $wpdb;
@@ -616,11 +617,13 @@ function game_bsc_get_play_credit_ledger_data($page = 1, $per_page = 20, $date_f
 	$params = [];
 
 	if (!empty($date_from)) {
+		if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) return ['status' => 'error', 'message' => 'date_from không hợp lệ.'];
 		$where_clauses[] = 'DATE(l.created_at) >= %s';
 		$params[] = sanitize_text_field($date_from);
 	}
 
 	if (!empty($date_to)) {
+		if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) return ['status' => 'error', 'message' => 'date_to không hợp lệ.'];
 		$where_clauses[] = 'DATE(l.created_at) <= %s';
 		$params[] = sanitize_text_field($date_to);
 	}

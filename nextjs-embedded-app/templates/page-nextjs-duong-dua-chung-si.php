@@ -41,6 +41,7 @@ get_header();
     window.NEXTJS_EMBEDDED_APP = <?php echo wp_json_encode([
         'assetUrl' => untrailingslashit($app_url),
     ]); ?>;
+    window.B5X7zJe2wSqY = <?php echo wp_json_encode(['nonce' => wp_create_nonce('wp_game_rest')]); ?>;
 
     // // Desktop postMessage handler — bắt SSO login + logout từ app
     // window.addEventListener('message', function (event) {

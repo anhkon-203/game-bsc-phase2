@@ -11,7 +11,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/mechanism', [
 		'methods'             => 'GET',
 		'callback'            => 'game_bsc_get_gifts_mechanism',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 	]);
 });
 
@@ -21,7 +21,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/voucher-categories', [
 		'methods'             => 'GET',
 		'callback'            => 'game_bsc_get_voucher_categories',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 	]);
 });
 
@@ -31,7 +31,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/vouchers', [
 		'methods'             => 'GET',
 		'callback'            => 'game_bsc_get_vouchers_list',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 		'args' => [
 			'page' => [
 				'required'          => false,
@@ -69,7 +69,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/vouchers/registered', [
 		'methods'             => 'GET',
 		'callback'            => 'game_bsc_get_registered_vouchers_and_sync_fields',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 	]);
 });
 
@@ -79,7 +79,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/gotit-vouchers', [
 		'methods'             => 'GET',
 		'callback'            => 'game_bsc_get_gotit_vouchers_list',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 		'args' => [
 			'page' => [
 				'required'          => false,
@@ -117,7 +117,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/gotit-voucher-redemptions', [
 		'methods'             => 'GET',
 		'callback'            => 'game_get_user_gotit_voucher_redemptions_history',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 		'args' => [
 			'page' => [
 				'required'          => false,
@@ -155,7 +155,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/voucher-detail', [
 		'methods'             => 'GET',
 		'callback'            => 'game_bsc_get_voucher_detail',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 		'args' => [
 			'voucher_id' => [
 				'required'          => true,
@@ -175,7 +175,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/gotit-voucher-by-transaction', [
 		'methods'             => 'GET',
 		'callback'            => 'game_bsc_get_gotit_voucher_by_transaction_ref',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 		'args' => [
 			'transaction_ref_id' => [
 				'required'          => true,
@@ -195,7 +195,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/vouchers/issue', [
 		'methods'             => 'POST',
 		'callback'            => 'game_bsc_issue_voucher',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 		'args' => [
 			'voucher_id' => [
 				'required'          => true,
@@ -214,7 +214,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/gifts/redeem', [
 		'methods'             => 'POST',
 		'callback'            => 'game_bsc_redeem_item',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 		'args' => [
 			'type' => [
 					'required' => true,
@@ -238,7 +238,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/user-pieces', [
 		'methods'             => 'GET',
 		'callback'            => 'game_get_user_pieces',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 		'args' => [
 			'artifact_id' => [
 				'required' => false,
@@ -1269,7 +1269,7 @@ function game_get_user_gotit_voucher_redemptions_history(WP_REST_Request $reques
 			uvr.voucher_post_id,
 			uvr.redeemed_at,
 			COALESCE(NULLIF(uvr.transaction_ref_id, ''), gtxn.transaction_ref_id, '') AS transaction_ref_id,
-			COALESCE(uvr.gotit_expiry_date, gtxn.gotit_expiry_date) AS expiry_date,
+			gtxn.gotit_expiry_date AS expiry_date,
 			gtxn.gotit_state_name,
 			gtxn.gotit_status
 		FROM {$prefix}user_voucher_redemptions uvr
@@ -1857,7 +1857,7 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 		}
 
 		$transaction_user_id = (int) ($transaction['user_id'] ?? 0);
-		if ($transaction_user_id > 0 && $transaction_user_id !== $user_id) {
+		if ($transaction_user_id !== $user_id) {
 			return wg_json_response(403, [], __('Bạn không có quyền truy cập voucher này.', WG_GAME_PLUGIN_TEXTDOMAIN), 403);
 		}
 
@@ -1928,31 +1928,8 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 			$voucher_image_url = esc_url_raw((string) ($transaction['gotit_voucher_image'] ?? ''));
 		}
 
-		// expiry_date - ưu tiên từ transaction, chỉ query DB khi thực sự cần
+		// expiry_date - lấy từ DB làm fallback, sẽ bị override bởi Got It API bên dưới
 		$expiry_date = sanitize_text_field((string) ($transaction['gotit_expiry_date'] ?? ''));
-
-		$redemption_id = (int) ($transaction['redemption_id'] ?? 0);
-		if ($expiry_date === '' && $redemption_id > 0) {
-			// Thử lấy từ object cache trước
-			$cached_expiry = wp_cache_get('redemption_expiry_' . $redemption_id, 'game_bsc');
-			if ($cached_expiry !== false) {
-				$expiry_date = $cached_expiry;
-			} else {
-				// Chỉ query DB khi không có cache
-				$redemption_expiry = $wpdb->get_var(
-					$wpdb->prepare(
-						"SELECT gotit_expiry_date FROM {$prefix}user_voucher_redemptions WHERE id = %d",
-						$redemption_id
-					)
-				);
-
-				if (is_string($redemption_expiry) && $redemption_expiry !== '') {
-					$expiry_date = sanitize_text_field($redemption_expiry);
-					// Cache kết quả trong 1 ngày để tái sử dụng
-					wp_cache_set('redemption_expiry_' . $redemption_id, $expiry_date, 'game_bsc', DAY_IN_SECONDS);
-				}
-			}
-		}
 
 		$is_used = ((int) ($transaction['gotit_status'] ?? 0) === 4);
 		$state_code = (int) ($transaction['gotit_status'] ?? 0);
@@ -1987,8 +1964,10 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 
 					if (!empty($ref_vouchers) && is_array($ref_vouchers[0])) {
 						$first_ref_voucher = $ref_vouchers[0];
-						if ($expiry_date === '') {
-							$expiry_date = sanitize_text_field((string) ($first_ref_voucher['expiryDate'] ?? $first_ref_voucher['expiry_date'] ?? ''));
+						// Luôn lấy expiry_date từ Got It API — đây là nguồn chính xác nhất
+						$api_expiry = sanitize_text_field((string) ($first_ref_voucher['expiryDate'] ?? $first_ref_voucher['expiry_date'] ?? ''));
+						if ($api_expiry !== '') {
+							$expiry_date = $api_expiry;
 						}
 
 						if ($state_code === 0) {
@@ -2033,6 +2012,7 @@ function game_bsc_get_gotit_voucher_by_transaction_ref(WP_REST_Request $request)
 					'logo_url' => esc_url($voucher_brand_logo_url),
 				],
 			],
+			'redeemed_at' => sanitize_text_field((string) substr((string) ($transaction['created_at'] ?? ''), 0, 10)),
 			'expiry_date' => $expiry_date,
 			'terms_and_conditions' => [
 				'terms' => wp_kses_post($voucher_terms),
@@ -2851,7 +2831,7 @@ function game_bsc_redeem_artifact_internal($user_id, $artifact_id) {
 		} catch (Exception $e) {
 			$wpdb->query('ROLLBACK');
 			error_log('Redeem artifact error: ' . $e->getMessage());
-			return wg_json_response(500, [], __('Giao dịch thất bại: ' . $e->getMessage(), WG_GAME_PLUGIN_TEXTDOMAIN), 500);
+			return wg_json_response(500, [], __('Giao dịch thất bại. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN), 500);
 		}
 		
 	} catch (Throwable $e) {
@@ -2871,7 +2851,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/my-redemptions', array(
 		'methods' => 'GET',
 		'callback' => 'game_get_my_redemptions',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 		'args' => array(
 			'page' => array(
 				'validate_callback' => function ($param) {
@@ -2974,7 +2954,8 @@ function game_get_my_redemptions(WP_REST_Request $request)
 		return wg_json_response(200, $response, __('Lấy danh sách voucher đã đổi thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
 
 	} catch (Throwable $e) {
-		return wg_json_response(500, [], __('Lỗi: ' . $e->getMessage(), WG_GAME_PLUGIN_TEXTDOMAIN), 500);
+		error_log('game rest error: ' . $e->getMessage());
+		return wg_json_response(500, [], __('Lỗi hệ thống. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN), 500);
 	}
 }
 
@@ -3212,7 +3193,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/artifacts-exchange', array(
 		'methods' => 'GET',
 		'callback' => 'game_get_artifacts_exchange',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 	));
 });
 
@@ -3365,7 +3346,8 @@ function game_get_artifacts_exchange(WP_REST_Request $request)
 		return wg_json_response(200, $response, __('Lấy danh sách đổi quà thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
 
 	} catch (Throwable $e) {
-		return wg_json_response(500, [], __('Lỗi: ' . $e->getMessage(), WG_GAME_PLUGIN_TEXTDOMAIN), 500);
+		error_log('game rest error: ' . $e->getMessage());
+		return wg_json_response(500, [], __('Lỗi hệ thống. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN), 500);
 	}
 }
 
@@ -3377,7 +3359,7 @@ add_action('rest_api_init', function () {
 	register_rest_route(NS, '/artifacts-inventory', array(
 		'methods' => 'GET',
 		'callback' => 'game_get_artifacts_inventory',
-		'permission_callback' => '__return_true',
+		'permission_callback' => 'game_rest_perm_cb',
 	));
 });
 
@@ -3544,7 +3526,8 @@ function game_get_artifacts_inventory(WP_REST_Request $request)
 		return wg_json_response(200, $response, __('Lấy kho quà tặng thành công.', WG_GAME_PLUGIN_TEXTDOMAIN));
 
 	} catch (Throwable $e) {
-		return wg_json_response(500, [], __('Lỗi: ' . $e->getMessage(), WG_GAME_PLUGIN_TEXTDOMAIN), 500);
+		error_log('game rest error: ' . $e->getMessage());
+		return wg_json_response(500, [], __('Lỗi hệ thống. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN), 500);
 	}
 }
 
@@ -3838,7 +3821,7 @@ function game_get_user_pieces(WP_REST_Request $request) {
 		
 	} catch (Throwable $e) {
 		error_log('Error in game_get_user_pieces: ' . $e->getMessage());
-		return wg_json_response(500, [], __('Lỗi hệ thống: ' . $e->getMessage()));
+		return wg_json_response(500, [], __('Lỗi hệ thống. Vui lòng thử lại sau.', WG_GAME_PLUGIN_TEXTDOMAIN));
 	}
 }
 ?>

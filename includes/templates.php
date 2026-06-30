@@ -3,7 +3,6 @@ if (!defined('ABSPATH')) exit;
 // Đăng ký template
 add_filter('theme_page_templates', function($page_templates) {
     $page_templates['template-home.php'] = 'Game - Homepage';
-    $page_templates['template-test.php'] = 'Game - test';
     return $page_templates;
 });
 
@@ -17,26 +16,6 @@ add_filter('template_include', function($template) {
                 return $plugin_tpl;
             }
         }
-        if ($slug === 'template-test.php') {
-            $plugin_tpl = GAME_BSC_PLUGIN_DIR . 'templates/template-test.php';
-            if (file_exists($plugin_tpl)) {
-                return $plugin_tpl;
-            }
-        }
     }
     return $template;
 });
-
-// ===== Test Drops Page: /game-bsc-test-drops =====
-add_action('init', function() {
-    // Lấy path từ REQUEST_URI, bỏ query string
-    $path = trim( parse_url( $_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH ), '/' );
-
-    if ( $path === 'game-bsc-test-drops' ) {
-        $tpl = GAME_BSC_PLUGIN_DIR . 'templates/template-test-drops.php';
-        if ( file_exists( $tpl ) ) {
-            include $tpl;
-            exit;
-        }
-    }
-}, 20);

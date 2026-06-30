@@ -107,6 +107,9 @@ if ($should_render_app && file_exists($app_path . 'index.html')) {
 }
 
 get_header(); ?>
+<script>
+window.B5X7zJe2wSqY = <?php echo wp_json_encode(['nonce' => wp_create_nonce('wp_game_rest')]); ?>;
+</script>
 <div id="nextjs-embedded-app">
     <?php echo $output; ?>
 </div>

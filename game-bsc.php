@@ -940,19 +940,19 @@ function bsc_game_sync_afacctno(int $user_id, string $access_token): void
 function game_sso_require_session() {
 
     // Code dev
-    $user = [
-        'id'       => 1,
-        'provider'    => 'bsc',
-        'external_user_id'    => '123456',
-        'name'    => 'Triệu Ngọc Tài',
-        'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
-    ];
-    $_SESSION['game_user']        = $user;
-    $_SESSION['game_logged_in_at'] = time();
-      if (session_status() === PHP_SESSION_ACTIVE) {
-          session_write_close(); // nhả khóa ngay
-      }
-    return $user;
+    // $user = [
+    //     'id'       => 1,
+    //     'provider'    => 'bsc',
+    //     'external_user_id'    => '123456',
+    //     'name'    => 'Triệu Ngọc Tài',
+    //     'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
+    // ];
+    // $_SESSION['game_user']        = $user;
+    // $_SESSION['game_logged_in_at'] = time();
+    //   if (session_status() === PHP_SESSION_ACTIVE) {
+    //       session_write_close(); // nhả khóa ngay
+    //   }
+    // return $user;
 
   // 1. Kiểm tra token từ cookie game
   if (empty($_COOKIE[GAME_AUTH_COOKIE])) {
