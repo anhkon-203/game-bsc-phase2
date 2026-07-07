@@ -1,107 +1,127 @@
-# Got It Standalone Webhook Service
+# GotIt Standalone Webhook Service
 
-Service này được thiết kế độc lập hoàn toàn với lõi WordPress (không nạp WordPress) để tăng tính bảo mật, giảm độ trễ (latency) và đảm bảo tính liên tục của hệ thống đổi voucher.
-
----
-
-## Hướng dẫn cài đặt và cấu hình
-
-### 1. Cấu hình kết nối
-Mở tệp `config.php` trong thư mục này và cập nhật các thông số sau:
-- **Database:** Thông số kết nối CSDL MySQL (Host, DB Name, User, Password, Table Prefix).
-- **Got It Secrets:** Điền `GOTIT_WEBHOOK_SECRET` và `GOTIT_PUBLIC_KEY` (nếu dùng RSA).
-- **IP Whitelist (Khuyến nghị):**
-  - Đổi `ENABLE_IP_WHITELIST` thành `true`.
-  - Thêm các địa chỉ IP của máy chủ Got It cung cấp vào mảng `ALLOWED_IPS`.
+Service nhận thông báo thay đổi trạng thái voucher từ GotIt, chạy **độc lập với WordPress** trên port riêng để đảm bảo cô lập bảo mật.
 
 ---
 
-### 2. Cấu hình Nginx (Khuyến nghị)
-Để service lắng nghe ở một cổng riêng (ví dụ: `8081`) và ẩn khỏi internet trực tiếp, cấu hình block Nginx Virtual Host sau trên máy chủ của bạn:
+## Kiến trúc
 
-```nginx
-# 1. Cấu hình Service nội bộ ở cổng 8081
-server {
-    listen 127.0.0.1:8081; # Chỉ lắng nghe nội bộ từ localhost
-    server_name localhost;
-    root /var/www/bsc-game/wp-content/plugins/game-bsc/gotit-webhook-service;
-    index index.php;
-
-    access_log off;
-    error_log /var/log/nginx/gotit_webhook_error.log warn;
-
-    location / {
-        try_files $uri $uri/ /index.php?$args;
-    }
-
-    location ~ \.php$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock; # Thay đổi theo phiên bản PHP FPM của bạn
-    }
-
-    # Không cho phép truy cập trực tiếp file log hoặc config qua HTTP
-    location ~* \.(log|ini|conf|php)$ {
-        if ($uri ~* "index.php") {
-            break;
-        }
-        deny all;
-    }
-}
-
-# 2. Proxy request HTTPS bên ngoài vào service nội bộ
-# Thêm cấu hình này vào block server HTTPS chính (cổng 443) của website của bạn
-server {
-    listen 443 ssl http2;
-    server_name bsc-game.vn; # Tên miền website của bạn
-
-    # ... các cấu hình SSL và website khác ...
-
-    # Hướng route /gotit-webhook-service/ về port 8081
-    location /gotit-webhook-service/ {
-        # Chỉ cho phép IP của Got It truy cập ở tầng Nginx (tùy chọn)
-        # allow 118.69.x.x; # IP Got It
-        # deny all;
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        proxy_pass http://127.0.0.1:8081/;
-    }
-}
+```
+[GotIt Partner]
+      │  POST https://your-domain.com/gotit-webhook
+      ▼
+[Web Server :443]  ──proxy──►  [Internal :8081]
+                                      │
+                          gotit-webhook-service/
+                                  index.php
+                                      │
+                          ┌───────────┴───────────┐
+                   Đọc config từ WP          Xác thực chữ ký
+                   (wp-config.php +          (SHA256 / RSA)
+                    wp_options)                    │
+                                           Cập nhật DB (PDO)
+                                           wp_game_gotit_transactions
+                                           wp_game_gotit_webhook_logs
 ```
 
 ---
 
-### 3. Cấu hình Apache
-Nếu hệ thống của bạn sử dụng Apache thay vì Nginx, bạn cũng có thể mở một port riêng bằng cách thêm cấu hình sau vào tệp cấu hình Apache (ví dụ `httpd.conf` hoặc `apache2.conf`):
+## Cấu hình – Tự động, không cần sửa tay
 
-```apache
-# Mở port 8081
-Listen 8081
+`config.php` tự động đọc toàn bộ thông số từ WordPress:
 
-<VirtualHost *:8081>
-    ServerName localhost
-    DocumentRoot /var/www/bsc-game/wp-content/plugins/game-bsc/gotit-webhook-service
+| Thông số | Nguồn |
+|---|---|
+| DB Host / Name / User / Password | `wp-config.php` |
+| Table prefix | `wp-config.php` → `$table_prefix` |
+| Webhook Secret (SHA256) | `wp_options` → `game_bsc_gotit_webhook_secret` |
+| Public Key RSA (fallback) | `wp_options` → `game_bsc_gotit_public_key` |
 
-    <Directory /var/www/bsc-game/wp-content/plugins/game-bsc/gotit-webhook-service>
-        AllowOverride All
-        Require all granted
-    </Directory>
-</VirtualHost>
-```
-
-Đồng thời, bạn cũng nên tạo tệp `.htaccess` trong thư mục `gotit-webhook-service` để chặn truy cập trực tiếp vào các tệp nhạy cảm (nếu chưa cấu hình ở cấp máy chủ):
-
-```apache
-<FilesMatch "\.(config|log|ini)$">
-    Require all denied
-</FilesMatch>
-```
+> **Không cần chỉnh sửa bất kỳ file nào trước khi deploy.**  
+> Mọi giá trị lấy thẳng từ cài đặt plugin đang có.
 
 ---
 
-## Bảo mật bổ sung
-- **Database User giới hạn:** Khuyến nghị tạo một tài khoản MySQL riêng chỉ có quyền `SELECT` và `UPDATE` trên bảng `wp_game_gotit_transactions` và `INSERT` trên bảng `wp_game_gotit_webhook_logs`.
-- **Logs:** Tệp log debug sẽ được lưu tại `gotit-webhook-service/webhook_debug.log`. Hãy đảm bảo phân quyền file để bên ngoài không thể đọc trực tiếp (Nginx config phía trên đã chặn).
+## File trong thư mục này
+
+| File | Mô tả |
+|---|---|
+| `index.php` | Entry point – toàn bộ logic xử lý webhook |
+| `config.php` | Tự động load config từ WordPress |
+| `.htaccess` | Chặn truy cập HTTP vào file nhạy cảm (Apache) |
+| `nginx-vhost.conf` | Config mẫu cho Nginx |
+| `apache-vhost.conf` | Config mẫu cho Apache / Laragon |
+| `logs/` | Thư mục chứa log debug (chỉ khi bật `DEBUG_MODE`) |
+
+---
+
+## Hướng dẫn Deploy
+
+### Bước 1 – Gửi thông tin cho server team
+
+Cung cấp cho đội quản trị server hai thông tin sau:
+
+```
+Port    : 8081
+Thư mục : /đường-dẫn-web/wp-content/plugins/game-bsc/gotit-webhook-service/
+```
+
+File config mẫu sẵn có:
+- **Nginx** → `nginx-vhost.conf`
+- **Apache / Laragon** → `apache-vhost.conf`
+
+Server team cần:
+1. Tạo VirtualHost lắng nghe port `8081`, trỏ document root vào thư mục trên
+2. *(Tùy chọn)* Thêm proxy location `/gotit-webhook` từ port `443` vào `127.0.0.1:8081`
+
+---
+
+
+---
+
+### Bước 2 – Gửi URL mới cho GotIt
+
+| Phương án | URL gửi cho GotIt |
+|---|---|
+| Proxy qua 443 *(khuyến nghị)* | `https://your-domain.com/gotit-webhook` |
+| Expose port trực tiếp | `https://your-domain.com:8081/` |
+
+---
+
+## Kiểm tra hoạt động
+
+```bash
+# Phải trả về 405 Method Not Allowed (GET không hợp lệ)
+curl -i http://localhost:8081/
+
+# File nhạy cảm phải bị chặn (403 Forbidden)
+curl -I http://localhost:8081/config.php
+curl -I http://localhost:8081/logs/webhook_debug.log
+```
+
+| Request | Kết quả mong đợi |
+|---|---|
+| `GET /` | `405 Method Not Allowed` |
+| `POST /` – payload + sign hợp lệ | `200 {"success": true, ...}` |
+| `POST /` – sign sai | `401 Unauthorized` |
+| `GET /config.php` | `403 Forbidden` |
+| `GET /logs/...` | `403 Forbidden` |
+
+---
+
+## Bảo mật nâng cao (Khuyến nghị)
+
+
+### Database User riêng
+
+Tạo user MySQL chỉ có quyền tối thiểu cho service này:
+
+```sql
+CREATE USER 'gotit_webhook'@'localhost' IDENTIFIED BY 'strong_password';
+GRANT SELECT, UPDATE ON your_db.wp_game_gotit_transactions  TO 'gotit_webhook'@'localhost';
+GRANT INSERT         ON your_db.wp_game_gotit_webhook_logs  TO 'gotit_webhook'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Sau đó cập nhật thông tin user trong `wp-config.php` của service *(hoặc override bằng biến môi trường)*.
+

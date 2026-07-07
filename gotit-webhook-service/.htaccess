@@ -1,0 +1,29 @@
+# ==============================================================================
+# .htaccess – GotIt Standalone Webhook Service
+# Bảo vệ file nhạy cảm khỏi truy cập HTTP trực tiếp
+# ==============================================================================
+
+# Tắt directory listing
+Options -Indexes
+
+# Chặn truy cập trực tiếp vào file nhạy cảm
+<FilesMatch "\.(log|bak|ini|conf|lock|md|json)$">
+    Require all denied
+</FilesMatch>
+
+# Chặn tất cả .php NGOẠI TRỪ index.php
+<FilesMatch "^(?!index\.php$).+\.php$">
+    Require all denied
+</FilesMatch>
+
+# Chặn truy cập thư mục logs
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^logs/ - [F,L]
+</IfModule>
+
+# Header bảo mật cơ bản
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+</IfModule>

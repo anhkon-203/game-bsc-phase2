@@ -8,11 +8,7 @@
 
 declare(strict_types=1);
 
-// Xử lý CLI context (chạy test nội bộ)
-if (PHP_SAPI === 'cli') {
-    $_SERVER['REQUEST_METHOD'] = $_SERVER['REQUEST_METHOD'] ?? 'POST';
-    $_SERVER['REMOTE_ADDR'] = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-}
+
 
 // -----------------------------------------------------------------------------
 // 1. BOOTSTRAP & CONFIGURATION
@@ -33,10 +29,15 @@ date_default_timezone_set(APP_TIMEZONE);
 
 /**
  * Ghi log an toàn ra file (tự động xoay file nếu quá lớn)
+ * Production mode (DEBUG_MODE=false): chỉ ghi ERROR và CRITICAL
  */
 function webhook_log(string $level, string $message, array $context = []): void {
+    // Khi tắt debug, bỏ qua INFO / DEBUG / WARNING để giảm I/O disk trên production
+    $production_levels = ['ERROR', 'CRITICAL'];
     if (!defined('DEBUG_MODE') || !DEBUG_MODE) {
-        return;
+        if (!in_array(strtoupper($level), $production_levels, true)) {
+            return;
+        }
     }
 
     $log_file = LOG_FILE;
@@ -58,6 +59,22 @@ function webhook_log(string $level, string $message, array $context = []): void 
     $log_entry = "[{$timestamp}] [{$level}] {$message}{$context_str}" . PHP_EOL;
     
     file_put_contents($log_file, $log_entry, FILE_APPEND | LOCK_EX);
+}
+
+/**
+ * Làm sạch chuỗi text tương đương sanitize_text_field() của WordPress
+ * (standalone service không load WP nên phải tự cài đặt)
+ * - Bỏ thẻ HTML
+ * - Loại bỏ ký tự xuống dòng, tab
+ * - Gộp nhiều khoảng trắng thành một
+ * - Trim hai đầu
+ */
+function sanitize_text(string $value): string {
+    // Bỏ thẻ HTML/PHP
+    $value = strip_tags($value);
+    // Chuyển xuống dòng/tab thành khoảng trắng, sau đó gộp whitespace liên tiếp
+    $value = preg_replace('/[\r\n\t ]+/', ' ', $value) ?? '';
+    return trim($value);
 }
 
 /**
@@ -99,20 +116,7 @@ function get_client_ip(): string {
 // 3. SECURITY & VALIDATION MIDDLEWARES
 // -----------------------------------------------------------------------------
 
-/**
- * Kiểm tra IP Whitelist
- */
-function check_ip_whitelist(): void {
-    if (!defined('ENABLE_IP_WHITELIST') || !ENABLE_IP_WHITELIST) {
-        return;
-    }
 
-    $client_ip = get_client_ip();
-    if (!in_array($client_ip, ALLOWED_IPS, true)) {
-        webhook_log('WARNING', "Rejected request from unauthorized IP", ['ip' => $client_ip]);
-        send_json_response(403, false, 'Forbidden. IP not whitelisted.');
-    }
-}
 
 /**
  * Kiểm tra method & content-type
@@ -134,9 +138,6 @@ function check_request_headers(): void {
  */
 function parse_and_validate_payload(): array {
     $raw_body = file_get_contents('php://input');
-    if (empty($raw_body) && PHP_SAPI === 'cli') {
-        $raw_body = file_get_contents('php://stdin');
-    }
 
     if (empty($raw_body)) {
         send_json_response(400, false, 'Empty request body.');
@@ -224,9 +225,16 @@ function verify_signature(array $body): void {
 // -----------------------------------------------------------------------------
 
 /**
- * Khởi tạo kết nối DB bằng PDO
+ * Khởi tạo kết nối DB bằng PDO — dùng static variable để reuse trong cùng 1 request
  */
 function get_db_connection(): PDO {
+    // Reuse kết nối đã tạo trước đó thay vì mở socket mới mỗi lần gọi
+    static $pdo = null;
+
+    if ($pdo !== null) {
+        return $pdo;
+    }
+
     $dsn = sprintf(
         "mysql:host=%s;dbname=%s;charset=%s",
         WEBHOOK_DB_HOST,
@@ -235,15 +243,15 @@ function get_db_connection(): PDO {
     );
 
     try {
-        return new PDO($dsn, WEBHOOK_DB_USER, WEBHOOK_DB_PASSWORD, [
+        $pdo = new PDO($dsn, WEBHOOK_DB_USER, WEBHOOK_DB_PASSWORD, [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => false, // Tắt emulate prepare (quan trọng cho security SQL Injection)
+            PDO::ATTR_EMULATE_PREPARES   => false,
             PDO::ATTR_STRINGIFY_FETCHES  => false,
         ]);
+        return $pdo;
     } catch (PDOException $e) {
         webhook_log('CRITICAL', 'Database connection failed', ['error' => $e->getMessage()]);
-        // Ẩn chi tiết lỗi DB với client
         send_json_response(500, false, 'Internal database connection error.');
     }
 }
@@ -281,7 +289,8 @@ function process_single_voucher(PDO $pdo, array $voucher_data): array {
         }
         
         $where_sql = implode(' OR ', $where_clauses);
-        $stmt = $pdo->prepare("SELECT id, gotit_voucher_code, gotit_serial FROM `{$table}` WHERE {$where_sql} LIMIT 1");
+        // Lấy thêm gotit_status để kiểm tra idempotency
+        $stmt = $pdo->prepare("SELECT id, gotit_voucher_code, gotit_serial, gotit_status FROM `{$table}` WHERE {$where_sql} LIMIT 1");
         $stmt->execute($search_params);
         $transaction = $stmt->fetch();
 
@@ -289,24 +298,30 @@ function process_single_voucher(PDO $pdo, array $voucher_data): array {
             return ['success' => false, 'message' => "Not found DB (Code: {$voucher_code}, Serial: {$serial})"];
         }
 
-        // Tạo mảng dữ liệu update
+        // Idempotency: bỏ qua nếu trạng thái đã giống nhau (Got It có thể retry webhook)
+        if ((int)$transaction['gotit_status'] === $new_state_code) {
+            webhook_log('INFO', "Idempotent skip (already state {$new_state_code})", ['code' => $voucher_code]);
+            return ['success' => true, 'message' => "Already state {$new_state_code}: {$voucher_code}"];
+        }
+
+        // Tạo mảng dữ liệu update (sanitize khớp với bản gốc WordPress)
         $update_data = [
             'gotit_status'            => $new_state_code,
-            'gotit_state_name'        => $new_state_name,
+            'gotit_state_name'        => sanitize_text($new_state_name),
             'updated_at'              => date('Y-m-d H:i:s'),
-            'gotit_status_changed_at' => $status_changed,
+            'gotit_status_changed_at' => sanitize_text($status_changed),
         ];
 
         if (!empty($expired_date)) {
-            $update_data['gotit_expiry_date'] = $expired_date . ' 23:59:59';
+            $update_data['gotit_expiry_date'] = sanitize_text($expired_date) . ' 23:59:59';
         }
 
         // Bổ sung code/serial nếu DB đang thiếu
         if (empty($transaction['gotit_voucher_code']) && !empty($voucher_code)) {
-            $update_data['gotit_voucher_code'] = $voucher_code;
+            $update_data['gotit_voucher_code'] = sanitize_text($voucher_code);
         }
         if (empty($transaction['gotit_serial']) && !empty($serial)) {
-            $update_data['gotit_serial'] = $serial;
+            $update_data['gotit_serial'] = sanitize_text($serial);
         }
 
         // Build câu SQL UPDATE
@@ -361,7 +376,6 @@ function record_webhook_log(PDO $pdo, string $raw_body, int $total, int $process
 function main(): void {
     webhook_log('INFO', '--- Incoming Webhook Request ---');
 
-    check_ip_whitelist();
     check_request_headers();
     
     // Đọc và validate payload

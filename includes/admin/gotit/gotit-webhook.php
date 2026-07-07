@@ -5,18 +5,17 @@ if (!defined('ABSPATH')) {
 
 /**
  * Got It Biz Webhook - Nhận thông báo thay đổi trạng thái voucher tự động
+ *
+ * ===========================================================================
+ * DEPRECATED (2026-06):
+ * WordPress REST route đã bị tắt hoàn toàn.
+ * Webhook GotIt chạy trên Standalone Service riêng (port 8081).
+ *
+ * Standalone service: gotit-webhook-service/index.php
+ * Xem hướng dẫn deploy: gotit-webhook-service/README.md
+ * ===========================================================================
  */
 
-// Đăng ký REST API Route
-if (get_option('game_bsc_gotit_enable_wp_webhook', '1') === '1') {
-    add_action('rest_api_init', function () {
-        register_rest_route(NS, '/gotit-webhook', [
-            'methods'             => 'POST',
-            'callback'            => 'game_bsc_gotit_webhook_handler',
-            'permission_callback' => '__return_true', // Công khai, xác thực qua chữ ký (sign)
-        ]);
-    });
-}
 
 /**
  * Xử lý webhook request từ Got It
