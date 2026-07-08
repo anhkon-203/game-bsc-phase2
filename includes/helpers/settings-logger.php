@@ -68,6 +68,12 @@ function game_bsc_settings_logs_page() {
 							<option value="game_bsc_rewards_descriptions" <?php selected($filter_key, 'game_bsc_rewards_descriptions'); ?>>
 								<?php _e('Cơ chế đổi quà', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
 							</option>
+							<option value="game_bsc_terms" <?php selected($filter_key, 'game_bsc_terms'); ?>>
+								<?php _e('Điều khoản đổi quà', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
+							</option>
+							<option value="game_bsc_terms_link" <?php selected($filter_key, 'game_bsc_terms_link'); ?>>
+								<?php _e('Link điều khoản', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
+							</option>
 							<?php
 							// Lấy danh sách artifact logs
 							$artifact_logs = $wpdb->get_col(
@@ -270,6 +276,8 @@ function game_bsc_format_setting_key($key) {
 		'game_bsc_tasks' => 'Nhiệm vụ',
 		'game_bsc_rules' => 'Thể lệ',
 		'game_bsc_rewards_descriptions' => 'Cơ chế đổi quà',
+		'game_bsc_terms' => 'Điều khoản đổi quà',
+		'game_bsc_terms_link' => 'Link điều khoản',
 		'game_bsc_post_game_badges' => 'Huy hiệu',
 		'game_bsc_post_game_question' => 'Câu hỏi',
 		'game_bsc_post_game_vouchers' => 'Voucher',
@@ -1108,6 +1116,8 @@ function game_bsc_get_setting_label($setting_key)
 		'game_bsc_tasks' => 'Nhiệm vụ',
 		'game_bsc_rules' => 'Thể lệ',
 		'game_bsc_rewards_descriptions' => 'Cơ chế đổi quà',
+		'game_bsc_terms' => 'Điều khoản đổi quà',
+		'game_bsc_terms_link' => 'Link điều khoản',
 		'game_bsc_post_game_badges' => 'Huy hiệu',
 		'game_bsc_post_game_question' => 'Câu hỏi',
 		'game_bsc_post_game_vouchers' => 'Voucher',

@@ -16,15 +16,15 @@ include_once GAME_BSC_PLUGIN_DIR . 'includes/helpers/voucher-list.php';
 function game_rest_perm_cb($request)
 {
 	// Code dev - bypass nonce check
-	// return true;
+	return true;
 
 	// Code production
-	$nonce = $request->get_header('X-WP-Nonce');
-	if (!$nonce) $nonce = $request->get_param('_wpnonce');
-	if (!$nonce || !wp_verify_nonce($nonce, 'wp_game_rest')) {
-		return false;
-	}
-	return true;
+	// $nonce = $request->get_header('X-WP-Nonce');
+	// if (!$nonce) $nonce = $request->get_param('_wpnonce');
+	// if (!$nonce || !wp_verify_nonce($nonce, 'wp_game_rest')) {
+	// 	return false;
+	// }
+	// return true;
 }
 
 

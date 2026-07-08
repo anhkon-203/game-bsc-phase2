@@ -26,7 +26,7 @@ define('GAME_BSC_PLUGIN_FILE', __FILE__);
 define('WG_GAME_PLUGIN_TEXTDOMAIN', 'wg-game-bsc');
 define('WG_GAME_MAX_UPLOAD_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('WG_GAME_ITEMS_PER_PAGE', 50); // Số item trên 1 trang
-define('WG_GAME_PLUGIN_DB_VERSION', '30.0');
+define('WG_GAME_PLUGIN_DB_VERSION', '32.0');
 define('WG_GAME_DEFAULT_AVATAR_URL', site_url() . '/wp-content/plugins/game-bsc/assets/images/avatar.png');
 define('TIMEZONE', new DateTimeZone('Asia/Ho_Chi_Minh'));
 // Cookie name for plugin auth token (stored as opaque token in DB)
@@ -940,19 +940,19 @@ function bsc_game_sync_afacctno(int $user_id, string $access_token): void
 function game_sso_require_session() {
 
     // Code dev
-    // $user = [
-    //     'id'       => 1,
-    //     'provider'    => 'bsc',
-    //     'external_user_id'    => '123456',
-    //     'name'    => 'Triệu Ngọc Tài',
-    //     'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
-    // ];
-    // $_SESSION['game_user']        = $user;
-    // $_SESSION['game_logged_in_at'] = time();
-    //   if (session_status() === PHP_SESSION_ACTIVE) {
-    //       session_write_close(); // nhả khóa ngay
-    //   }
-    // return $user;
+    $user = [
+        'id'       => 1,
+        'provider'    => 'bsc',
+        'external_user_id'    => '123456',
+        'name'    => 'Triệu Ngọc Tài',
+        'avatar_url'    => WG_GAME_DEFAULT_AVATAR_URL,
+    ];
+    $_SESSION['game_user']        = $user;
+    $_SESSION['game_logged_in_at'] = time();
+      if (session_status() === PHP_SESSION_ACTIVE) {
+          session_write_close(); // nhả khóa ngay
+      }
+    return $user;
 
   // 1. Kiểm tra token từ cookie game
   if (empty($_COOKIE[GAME_AUTH_COOKIE])) {

@@ -11,6 +11,9 @@ function game_bsc_settings_page() {
 
     $rewards_descriptions = get_option('game_bsc_rewards_descriptions', []);
     if (!is_array($rewards_descriptions)) $rewards_descriptions = [];
+
+    $terms = get_option('game_bsc_terms', []);
+    if (!is_array($terms)) $terms = [];
     ?>
     <div class="wrap">
         <h1><?php _e('Cài đặt Game BSC', WG_GAME_PLUGIN_TEXTDOMAIN); ?></h1>
@@ -41,6 +44,9 @@ function game_bsc_settings_page() {
             </a>
             <a href="#tab-banners" class="nav-tab" data-tab="banners">
                 <?php _e('Quản lí banner', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
+            </a>
+            <a href="#tab-terms" class="nav-tab" data-tab="terms">
+                <?php _e('Điều khoản đổi quà', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
             </a>
         </div>
 
@@ -629,6 +635,84 @@ function game_bsc_settings_page() {
                     </tr>
                 </table>
             </div>
+
+            <!-- ========== TAB: TERMS & CONDITIONS ========== -->
+            <div id="tab-terms" class="wg-game-tab-content" style="display:none;">
+                <h2><?php _e('Điều khoản đổi quà', WG_GAME_PLUGIN_TEXTDOMAIN); ?></h2>
+                <p><?php _e('Quản lý các điều khoản và điều kiện khi đổi voucher Gotit', WG_GAME_PLUGIN_TEXTDOMAIN); ?></p>
+                
+                <table class="form-table" style="margin-bottom: 20px;">
+                    <tr>
+                        <th><label for="game_bsc_terms_link"><?php _e('Link điều khoản chung', WG_GAME_PLUGIN_TEXTDOMAIN); ?></label></th>
+                        <td>
+                            <?php
+                            $terms_link = get_option('game_bsc_terms_link', '');
+                            ?>
+                            <input type="url" name="game_bsc_terms_link" id="game_bsc_terms_link" value="<?php echo esc_url($terms_link); ?>" style="width: 50%;" placeholder="https://example.com/terms">
+                            <p class="description"><?php _e('Đường dẫn chi tiết đến trang điều khoản và điều kiện bên ngoài (nếu có).', WG_GAME_PLUGIN_TEXTDOMAIN); ?></p>
+                        </td>
+                    </tr>
+                </table>
+
+                <div id="terms-repeater">
+                    <?php
+                    if (empty($terms)) {
+                        $terms = [['title' => '', 'content' => '']];
+                    }
+                    foreach ($terms as $index => $term):
+                        ?>
+                        <fieldset class="term-item" style="border:2px solid #0073aa; margin-bottom:15px; padding:15px; background:#f9f9f9; border-radius:5px;">
+                            <legend style="padding:0 10px; color:#0073aa; font-weight:bold;">
+                                <?php printf(__('Mục điều khoản #%d', WG_GAME_PLUGIN_TEXTDOMAIN), $index + 1); ?>
+                            </legend>
+
+                            <div class="form-group" style="margin-bottom:15px;">
+                                <label for="term_title_<?php echo $index; ?>" style="display:block; margin-bottom:5px; font-weight:bold;">
+                                    <?php _e('Tên điều khoản', WG_GAME_PLUGIN_TEXTDOMAIN); ?> <span style="color:red;">*</span>
+                                </label>
+                                <input
+                                        type="text"
+                                        id="term_title_<?php echo $index; ?>"
+                                        name="terms[<?php echo $index; ?>][title]"
+                                        value="<?php echo esc_attr($term['title'] ?? ''); ?>"
+                                        class="regular-text"
+                                        style="width:50%;"
+                                        placeholder="<?php _e('Nhập tên điều khoản', WG_GAME_PLUGIN_TEXTDOMAIN); ?>"
+                                >
+                            </div>
+
+                            <div class="form-group" style="margin-bottom:15px;">
+                                <label for="term_content_<?php echo $index; ?>" style="display:block; margin-bottom:5px; font-weight:bold;">
+                                    <?php _e('Nội dung điều khoản', WG_GAME_PLUGIN_TEXTDOMAIN); ?> <span style="color:red;">*</span>
+                                </label>
+                                <?php
+                                wp_editor(
+                                        isset($term['content']) ? stripslashes($term['content']) : '',
+                                        'term_content_' . $index,
+                                        [
+                                                'textarea_name' => 'terms[' . $index . '][content]',
+                                                'media_buttons' => false,
+                                                'teeny' => true,
+                                                'quicktags' => true,
+                                        ]
+                                );
+                                ?>
+                            </div>
+
+                            <button type="button" class="button button-danger remove-term" style="background:#dc3545; color:white; border-color:#dc3545; cursor:pointer; padding:5px 10px;">
+                                <?php _e('Xóa điều khoản này', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
+                            </button>
+                        </fieldset>
+                    <?php endforeach; ?>
+                </div>
+
+                <p>
+                    <button type="button" id="add-term" class="button button-secondary" style="margin-bottom:20px;">
+                        <?php _e('+ Thêm điều khoản', WG_GAME_PLUGIN_TEXTDOMAIN); ?>
+                    </button>
+                </p>
+            </div>
+
             <!-- SUBMIT BUTTON -->
             <p style="margin-top:30px; padding-top:20px; border-top:1px solid #ccc;">
                 <input type="submit" name="save_settings" class="button-primary" value="<?php _e('Lưu cài đặt', WG_GAME_PLUGIN_TEXTDOMAIN); ?>">
@@ -1003,6 +1087,10 @@ function game_bsc_settings_page() {
             // ========== HELPER FUNCTION: Init WP Editor ==========
             function game_bsc_init_editor(editorId) {
                 if (typeof tinymce !== 'undefined') {
+                    // Nếu editor đã được init, loại bỏ nó trước khi init lại
+                    if (tinymce.get(editorId)) {
+                        tinymce.get(editorId).remove();
+                    }
                     // Nếu TinyMCE đã được load
                     tinymce.init({
                         selector: '#' + editorId,
@@ -1188,6 +1276,87 @@ function game_bsc_settings_page() {
                     }
                 }
             });
+
+            // ========== QUẢN LÝ TERMS (ĐIỀU KHOẢN) - FIX WYSIWYG EDITOR ==========
+            const termsDiv = document.getElementById('terms-repeater');
+            const addTermBtn = document.getElementById('add-term');
+
+            if (addTermBtn && termsDiv) {
+                addTermBtn.addEventListener('click', function() {
+                    const index = termsDiv.querySelectorAll('.term-item').length;
+
+                    // Thêm form trước
+                    const html = `
+                    <fieldset class="term-item" style="border:2px solid #0073aa; margin-bottom:15px; padding:15px; background:#f9f9f9; border-radius:5px;">
+                        <legend style="padding:0 10px; color:#0073aa; font-weight:bold;">
+                            Mục điều khoản #${index + 1}
+                        </legend>
+
+                        <div class="form-group" style="margin-bottom:15px;">
+                            <label for="term_title_${index}" style="display:block; margin-bottom:5px; font-weight:bold;">
+                                Tên điều khoản <span style="color:red;">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                id="term_title_${index}"
+                                name="terms[${index}][title]"
+                                value=""
+                                class="regular-text"
+                                style="width:50%;"
+                                placeholder="Nhập tên điều khoản"
+                            >
+                        </div>
+
+                        <div class="form-group" style="margin-bottom:15px;">
+                            <label for="term_content_${index}" style="display:block; margin-bottom:5px; font-weight:bold;">
+                                Nội dung điều khoản <span style="color:red;">*</span>
+                            </label>
+                            <textarea
+                                id="term_content_${index}"
+                                name="terms[${index}][content]"
+                                style="width:100%; height:200px; padding:10px; border:1px solid #ddd; font-family:Arial, sans-serif;"
+                                class="wp-editor-textarea"
+                            ></textarea>
+                        </div>
+
+                        <button type="button" class="button button-danger remove-term" style="background:#dc3545; color:white; border-color:#dc3545; cursor:pointer; padding:5px 10px;">
+                            Xóa điều khoản này
+                        </button>
+                    </fieldset>
+                    `;
+                    termsDiv.insertAdjacentHTML('beforeend', html);
+
+                    // Khởi tạo WYSIWYG editor trực tiếp thông qua helper function cục bộ
+                    game_bsc_init_editor('term_content_' + index);
+                });
+
+                termsDiv.addEventListener('click', function(e) {
+                    if (e.target.classList.contains('remove-term')) {
+                        if (termsDiv.querySelectorAll('.term-item').length > 1) {
+                            e.target.closest('.term-item').remove();
+                            // Cập nhật lại số thứ tự
+                            termsDiv.querySelectorAll('.term-item').forEach(function(item, idx) {
+                                item.querySelector('legend').textContent = 'Mục điều khoản #' + (idx + 1);
+                                item.querySelectorAll('input, textarea').forEach(function(input) {
+                                    const name = input.name.replace(/terms\[\d+\]/, `terms[${idx}]`);
+                                    input.name = name;
+                                    const id = input.id.replace(/_\d+$/, `_${idx}`);
+                                    input.id = id;
+                                });
+                                item.querySelectorAll('label').forEach(function(label) {
+                                    const forAttr = label.getAttribute('for');
+                                    if (forAttr) {
+                                        const newForAttr = forAttr.replace(/_\d+$/, `_${idx}`);
+                                        label.setAttribute('for', newForAttr);
+                                    }
+                                });
+                            });
+                        } else {
+                            alert('Phải có ít nhất một mục điều khoản');
+                        }
+                    }
+                });
+            }
         });
 
         /**
@@ -1296,6 +1465,8 @@ function game_bsc_handle_save_settings() {
     $old_tasks = get_option('game_bsc_tasks', []);
     $old_rules = get_option('game_bsc_rules', []);
     $old_rewards = get_option('game_bsc_rewards_descriptions', []);
+    $old_terms = get_option('game_bsc_terms', []);
+    $old_terms_link = get_option('game_bsc_terms_link', '');
     $old_api_base_url = get_option('game_bsc_api_base_url', '');
     $old_gotit_environment = get_option('game_bsc_gotit_environment', 'staging');
     $old_gotit_api_key = get_option('game_bsc_gotit_api_key', '');
@@ -1498,6 +1669,45 @@ function game_bsc_handle_save_settings() {
             $rewards[$key] = wp_kses_post($content);
         }
         update_option('game_bsc_rewards_descriptions', $rewards);
+    }
+
+    // Save terms & conditions
+    if (isset($_POST['terms']) && is_array($_POST['terms'])) {
+        $terms = array_map(function($term) {
+            return [
+                    'title' => sanitize_text_field($term['title'] ?? ''),
+                    'content' => wp_kses_post($term['content'] ?? ''),
+            ];
+        }, $_POST['terms']);
+
+        $terms = array_filter($terms, function($term) {
+            return !empty($term['title']) || !empty($term['content']);
+        });
+
+        update_option('game_bsc_terms', array_values($terms));
+    } else {
+        $terms = [];
+        update_option('game_bsc_terms', []);
+    }
+
+    $terms_link = sanitize_text_field($_POST['game_bsc_terms_link'] ?? '');
+    update_option('game_bsc_terms_link', $terms_link);
+
+    if ($old_terms !== $terms) {
+        game_bsc_log_settings_change(
+                'game_bsc_terms',
+                $old_terms,
+                $terms,
+                'update'
+        );
+    }
+    if ($old_terms_link !== $terms_link) {
+        game_bsc_log_settings_change(
+                'game_bsc_terms_link',
+                $old_terms_link,
+                $terms_link,
+                'update'
+        );
     }
 
     // APi Base URL

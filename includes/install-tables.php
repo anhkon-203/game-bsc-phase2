@@ -12,7 +12,7 @@ function game_bsc_install_tables() {
 
     $prefix = $wpdb->prefix . 'game_';
 
-	$wpdb->query("DROP TABLE IF EXISTS {$prefix}bsc_fee_voucher_usage_log, {$prefix}bsc_fee_vouchers");
+	$wpdb->query("DROP TABLE IF EXISTS {$prefix}bsc_fee_voucher_usage_log, {$prefix}bsc_fee_vouchers, {$prefix}user_terms_acceptance");
 
     $tables = [];
 
@@ -397,6 +397,13 @@ function game_bsc_install_tables() {
         PRIMARY KEY (id),
         KEY idx_status (status),
         KEY idx_created_at (created_at)
+    ) ENGINE=InnoDB $charset_collate;";
+
+    // Bảng lưu trạng thái đồng ý điều khoản đổi voucher của user
+    $tables[$prefix . 'user_terms_acceptance'] = "CREATE TABLE {$prefix}user_terms_acceptance (
+        user_id INT UNSIGNED NOT NULL,
+        accepted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id)
     ) ENGINE=InnoDB $charset_collate;";
 
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');

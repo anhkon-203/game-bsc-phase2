@@ -2264,6 +2264,19 @@ function game_bsc_redeem_voucher_internal($user_id, $voucher_post_id) {
 		$issued_is_partner_code = 0;
 
 		if ($is_third_party_voucher) {
+			// ===== KIỂM TRA ĐỒNG Ý ĐIỀU KHOẢN =====
+			$table_terms = $wpdb->prefix . 'game_user_terms_acceptance';
+			$terms_accepted = $wpdb->get_var($wpdb->prepare(
+				"SELECT user_id FROM {$table_terms} WHERE user_id = %d",
+				$user_id
+			));
+			
+			if (!$terms_accepted) {
+				return wg_json_response(403, [
+					'code' => 'terms_not_accepted'
+				], __('Bạn cần đồng ý điều khoản đổi voucher trước khi tiếp tục.', WG_GAME_PLUGIN_TEXTDOMAIN));
+			}
+
 			$gotit_client = game_bsc_gotit_client();
 			if (!$gotit_client || !$gotit_client->is_configured()) {
 				return wg_json_response(422, [], __('Hệ thống voucher Got It chưa được cấu hình.', WG_GAME_PLUGIN_TEXTDOMAIN));
